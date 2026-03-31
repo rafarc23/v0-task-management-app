@@ -25,11 +25,11 @@ export default function LoginPage() {
     setIsLoading(true)
     
     try {
-      const success = await login(username, password)
-      if (success) {
+      const result = await login(username, password)
+      if (result.success) {
         router.push("/dashboard")
       } else {
-        setError("Credenciales incorrectas o usuario inactivo.")
+        setError(result.error || "Credenciales incorrectas o usuario inactivo.")
       }
     } catch {
       setError("Error al iniciar sesion. Intente de nuevo.")

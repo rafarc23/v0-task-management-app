@@ -2,26 +2,24 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { validateCredentials, getUserById, type StoredUser, type UserRole } from "./user-storage"
 
-export type { UserRole }
+export type UserRole = "admin" | "employee" | "requester"
 
 export interface User {
   id: string
+  username: string
   email: string
   name: string
   role: UserRole
-  department?: string
   avatar?: string
-  employeeId?: string
 }
 
 interface AuthContextType {
   user: User | null
-  login: (username: string, password: string) => Promise<boolean>
-  logout: () => void
-  setEmployeeProfile: (employeeId: string, name: string, email: string) => void
-  refreshUser: () => void
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  logout: () => Promise<void>
+  refreshUser: () => Promise<void>
+  isLoading: boolean
   isAuthenticated: boolean
   isAdmin: boolean
   isRequester: boolean
@@ -30,67 +28,73 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-function storedUserToUser(stored: StoredUser): User {
-  return {
-    id: stored.id,
-    email: stored.email,
-    name: stored.name,
-    role: stored.role,
-    department: stored.department,
-    avatar: stored.avatar,
-    employeeId: stored.employeeId,
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
+  // Check session on mount
   useEffect(() => {
-    const storedUserId = localStorage.getItem("userId")
-    if (storedUserId) {
-      const stored = getUserById(storedUserId)
-      if (stored && stored.isActive) {
-        setUser(storedUserToUser(stored))
-      } else {
-        // User was deleted or deactivated
-        localStorage.removeItem("userId")
+    const checkSession = async () => {
+      try {
+        const res = await fetch('/api/auth/session')
+        const data = await res.json()
+        if (data.user) {
+          setUser(data.user)
+        }
+      } catch (error) {
+        console.error('Session check error:', error)
+      } finally {
+        setIsLoading(false)
       }
     }
+    checkSession()
   }, [])
 
-  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
-    const stored = validateCredentials(username, password)
-    if (stored) {
-      const userData = storedUserToUser(stored)
-      setUser(userData)
-      localStorage.setItem("userId", stored.id)
-      return true
-    }
-    return false
-  }, [])
+  const login = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
 
-  const setEmployeeProfile = useCallback((employeeId: string, name: string, email: string) => {
-    if (!user) return
-    const updatedUser = { ...user, employeeId, name, email }
-    setUser(updatedUser)
-  }, [user])
+      const data = await res.json()
 
-  const refreshUser = useCallback(() => {
-    const storedUserId = localStorage.getItem("userId")
-    if (storedUserId) {
-      const stored = getUserById(storedUserId)
-      if (stored && stored.isActive) {
-        setUser(storedUserToUser(stored))
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Error de autenticación' }
       }
+
+      setUser(data.user)
+      return { success: true }
+    } catch (error) {
+      console.error('Login error:', error)
+      return { success: false, error: 'Error de conexión' }
     }
   }, [])
 
-  const logout = useCallback(() => {
-    setUser(null)
-    localStorage.removeItem("userId")
-    router.push("/login")
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      setUser(null)
+      router.push("/login")
+    }
   }, [router])
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/session')
+      const data = await res.json()
+      if (data.user) {
+        setUser(data.user)
+      }
+    } catch (error) {
+      console.error('Refresh user error:', error)
+    }
+  }, [])
 
   return (
     <AuthContext.Provider
@@ -98,8 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         login,
         logout,
-        setEmployeeProfile,
         refreshUser,
+        isLoading,
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
         isRequester: user?.role === "requester",
