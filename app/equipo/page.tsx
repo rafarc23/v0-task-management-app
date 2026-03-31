@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useRef } from "react"
+import { useState, useRef, useCallback } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
@@ -20,8 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getEmployees, addEmployee, updateEmployee, deleteEmployee } from "@/lib/employee-storage"
-import { getTasks } from "@/lib/task-storage"
+import { useEmployees, useTasks } from "@/lib/hooks/use-data"
 import type { Employee } from "@/lib/types"
 import {
   UserPlus,
@@ -34,6 +33,7 @@ import {
   AlertCircle,
   Camera,
   ImagePlus,
+  Loader2,
 } from "lucide-react"
 
 export default function TeamPage() {
@@ -45,7 +45,9 @@ export default function TeamPage() {
 }
 
 function TeamPageContent() {
-  const [employees, setEmployees] = useState<Employee[]>(getEmployees())
+  const { employees, isLoading, createEmployee, updateEmployee, deleteEmployee } = useEmployees()
+  const { tasks } = useTasks()
+  
   const [isAddingEmployee, setIsAddingEmployee] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -62,9 +64,7 @@ function TeamPageContent() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const editFileInputRef = useRef<HTMLInputElement>(null)
 
-  const tasks = getTasks()
-
-  const getEmployeeStats = (employeeId: string) => {
+  const getEmployeeStats = useCallback((employeeId: string) => {
     const employeeTasks = tasks.filter((t) => t.assignedTo?.id === employeeId)
     return {
       total: employeeTasks.length,
@@ -72,9 +72,9 @@ function TeamPageContent() {
       en_proceso: employeeTasks.filter((t) => t.status === "en_proceso").length,
       completada: employeeTasks.filter((t) => t.status === "completada").length,
     }
-  }
+  }, [tasks])
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
@@ -84,18 +84,14 @@ function TeamPageContent() {
     reader.readAsDataURL(file)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (editingEmployee) {
-      const updated = updateEmployee(editingEmployee.id, formData)
-      if (updated) {
-        setEmployees(getEmployees())
-      }
+      await updateEmployee(editingEmployee.id, formData)
       setEditingEmployee(null)
       setEditDialogOpen(false)
     } else {
-      addEmployee(formData)
-      setEmployees(getEmployees())
+      await createEmployee(formData)
       setIsAddingEmployee(false)
     }
     resetForm()
@@ -129,10 +125,9 @@ function TeamPageContent() {
     setEditDialogOpen(true)
   }
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Estas seguro de eliminar este empleado?")) {
-      deleteEmployee(id)
-      setEmployees(getEmployees())
+      await deleteEmployee(id)
     }
   }
 
@@ -170,7 +165,7 @@ function TeamPageContent() {
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={(e) => handlePhotoUpload(e, isEdit)}
+            onChange={handlePhotoUpload}
           />
         </div>
         {!formData.avatar && (
@@ -268,6 +263,20 @@ function TeamPageContent() {
       </DialogFooter>
     </form>
   )
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
+            <p className="text-slate-600">Cargando equipo...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">

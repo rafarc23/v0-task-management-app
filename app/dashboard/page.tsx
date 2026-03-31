@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo, useCallback, memo } from "react"
+import { useMemo, useCallback, memo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
@@ -10,18 +10,18 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getTasks, archiveOldTasks } from "@/lib/task-storage"
-import { getEmployees } from "@/lib/employee-storage"
-import type { Task, Employee } from "@/lib/types"
+import { useTasks, useEmployees } from "@/lib/hooks/use-data"
+import type { Task } from "@/lib/types"
 import {
-  Calendar, List, LayoutGrid, ClipboardList, User,
-  Image as ImageIcon, Mic, ChevronRight, Search, AlertTriangle
+  Calendar, List, LayoutGrid, User,
+  Image as ImageIcon, Mic, ChevronRight, Search, AlertTriangle, Loader2
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { CalendarView } from "@/components/calendar-view"
 import { KanbanView } from "@/components/kanban-view"
 import { Input } from "@/components/ui/input"
+import { useState } from "react"
 
 export default function DashboardPage() {
   return (
@@ -34,41 +34,31 @@ export default function DashboardPage() {
 function DashboardContent() {
   const router = useRouter()
   const { user, isAdmin } = useAuth()
-  const [tasks, setTasks] = useState<Task[]>([])
   const [filterEmployee, setFilterEmployee] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
-  const [employees, setEmployees] = useState<Employee[]>([])
+  
+  // Use SWR hooks for data fetching
+  const { tasks: allTasks, isLoading: tasksLoading } = useTasks()
+  const { employees, isLoading: employeesLoading } = useEmployees()
 
-  // Load employees once on mount
-  useEffect(() => {
-    setEmployees(getEmployees())
-  }, [])
-
-  // Memoized task loading function
-  const loadTasks = useCallback(() => {
-    const allTasks = getTasks()
-    let filteredTasks = allTasks
+  // Filter tasks based on user role and selected employee
+  const tasks = useMemo(() => {
+    if (!allTasks) return []
+    let filtered = allTasks.filter(t => !t.archived)
     if (filterEmployee !== "all") {
-      filteredTasks = allTasks.filter((t) => t.assignedTo?.id === filterEmployee)
+      filtered = filtered.filter((t) => t.assignedTo?.id === filterEmployee)
     } else if (!isAdmin) {
-      filteredTasks = allTasks.filter((t) => t.requestedBy.id === user?.id)
+      filtered = filtered.filter((t) => t.requestedBy.id === user?.id)
     }
-    setTasks(filteredTasks)
-  }, [filterEmployee, isAdmin, user?.id])
+    return filtered
+  }, [allTasks, filterEmployee, isAdmin, user?.id])
 
-  useEffect(() => {
+  // Redirect requester to their solicitudes page
+  useMemo(() => {
     if (user?.role === "requester") {
       router.push("/mis-solicitudes")
-      return
     }
-    // Auto-archive old completed tasks (only once on mount)
-    archiveOldTasks()
-    loadTasks()
-    
-    // Reduced polling interval from 5s to 30s for better performance on low-resource servers
-    const interval = setInterval(loadTasks, 30000)
-    return () => clearInterval(interval)
-  }, [user, isAdmin, filterEmployee, router, loadTasks])
+  }, [user?.role, router])
 
   // Memoized search and filter
   const filteredTasks = useMemo(() => {
@@ -98,7 +88,7 @@ function DashboardContent() {
     return employeeColorMap.get(employeeId) || "#9ca3af"
   }, [employeeColorMap])
 
-  // Static helper functions (no dependencies, defined outside render)
+  // Static helper functions
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case "urgente": return "bg-red-500 text-white"
@@ -131,7 +121,7 @@ function DashboardContent() {
 
   const formatPriority = (p: string) => p.charAt(0).toUpperCase() + p.slice(1)
 
-  // Memoized TaskRow component to prevent unnecessary re-renders
+  // Memoized TaskRow component
   const TaskRow = memo(function TaskRow({ task, highlighted }: { task: Task; highlighted?: boolean }) {
     const empColor = getEmployeeColor(task.assignedTo?.id)
     const hasImages = task.attachments?.some((a) => a.type === "image")
@@ -170,7 +160,7 @@ function DashboardContent() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-700">{task.assignedTo.name}</p>
-                <p className="text-[10px] text-slate-400">{formatDistanceToNow(task.createdAt, { addSuffix: true, locale: es })}</p>
+                <p className="text-[10px] text-slate-400">{formatDistanceToNow(new Date(task.createdAt), { addSuffix: true, locale: es })}</p>
               </div>
             </div>
           ) : (
@@ -180,7 +170,7 @@ function DashboardContent() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-orange-600">Sin asignar</p>
-                <p className="text-[10px] text-slate-400">{formatDistanceToNow(task.createdAt, { addSuffix: true, locale: es })}</p>
+                <p className="text-[10px] text-slate-400">{formatDistanceToNow(new Date(task.createdAt), { addSuffix: true, locale: es })}</p>
               </div>
             </div>
           )}
@@ -190,6 +180,22 @@ function DashboardContent() {
       </div>
     )
   })
+
+  const isLoading = tasksLoading || employeesLoading
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-sky-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
+            <p className="text-slate-600">Cargando datos...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-sky-50">

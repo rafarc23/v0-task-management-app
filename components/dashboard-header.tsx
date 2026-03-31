@@ -14,8 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { LogOut, Users, LayoutDashboard, Plus, BarChart3, Bell, ClipboardList, FolderKanban, Send, Wrench, Archive, UserCog } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
-import { useEffect, useState } from "react"
-import { getUserNotifications, getUnreadCount, markAsRead, markAllAsRead } from "@/lib/notification-storage"
+import { useNotifications } from "@/lib/hooks/use-data"
 import type { Notification } from "@/lib/types"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
@@ -24,36 +23,17 @@ export function DashboardHeader() {
   const { user, logout, isAdmin, isRequester, isEmployee } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
 
-  useEffect(() => {
-    if (!user) return
-    const loadNotifications = () => {
-      const userNotifications = getUserNotifications(user.id)
-      setNotifications(userNotifications.slice(0, 10))
-      setUnreadCount(getUnreadCount(user.id))
-    }
-    loadNotifications()
-    // Reduced from 5s to 30s for better performance on low-resource servers
-    const interval = setInterval(loadNotifications, 30000)
-    return () => clearInterval(interval)
-  }, [user])
-
-  const handleNotificationClick = (notification: Notification) => {
-    markAsRead(notification.id)
-    setUnreadCount(getUnreadCount(user!.id))
+  const handleNotificationClick = async (notification: Notification) => {
+    await markAsRead(notification.id)
     if (notification.taskId) {
       router.push(`/tarea/${notification.taskId}`)
     }
   }
 
-  const handleMarkAllAsRead = () => {
-    if (!user) return
-    markAllAsRead(user.id)
-    setUnreadCount(0)
-    const userNotifications = getUserNotifications(user.id)
-    setNotifications(userNotifications.slice(0, 10))
+  const handleMarkAllAsRead = async () => {
+    await markAllAsRead()
   }
 
   const getNotificationIcon = (type: Notification["type"]) => {
@@ -69,7 +49,7 @@ export function DashboardHeader() {
   const getInitials = (name: string) =>
     name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
-  const NavButton = ({ href, icon: Icon, label, active }: { href: string; icon: React.ElementType; label: string; active?: boolean }) => (
+  const NavButton = ({ href, icon: Icon, label }: { href: string; icon: React.ElementType; label: string }) => (
     <Button
       variant="secondary"
       size="sm"
@@ -179,7 +159,7 @@ export function DashboardHeader() {
                         {!notification.read && <div className="h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />}
                       </div>
                       <p className="text-xs text-muted-foreground pl-6">
-                        {formatDistanceToNow(notification.createdAt, { addSuffix: true, locale: es })}
+                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true, locale: es })}
                       </p>
                     </DropdownMenuItem>
                   ))

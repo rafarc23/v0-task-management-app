@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useMemo, useCallback, memo, useEffect } from "react"
+import { useState, useMemo, useCallback, memo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import type { Task, Employee } from "@/lib/types"
-import { getEmployees } from "@/lib/employee-storage"
+import type { Task } from "@/lib/types"
+import { useEmployees } from "@/lib/hooks/use-data"
 import { ChevronLeft, ChevronRight, Image, Mic, Paperclip } from "lucide-react"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isToday, getDay } from "date-fns"
 import { es } from "date-fns/locale"
 
 interface CalendarViewProps {
@@ -21,12 +21,7 @@ const DAY_NAMES = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"]
 
 export const CalendarView = memo(function CalendarView({ tasks, onTaskClick, selectedEmployee }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [employees, setEmployees] = useState<Employee[]>([])
-
-  // Load employees once on mount
-  useEffect(() => {
-    setEmployees(getEmployees())
-  }, [])
+  const { employees } = useEmployees()
 
   // Memoize calendar calculations
   const { monthStart, monthEnd, daysInMonth, adjustedFirstDay } = useMemo(() => {

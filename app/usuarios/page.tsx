@@ -31,15 +31,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { 
-  getUsers, 
-  addUser, 
-  updateUser, 
-  deleteUser, 
-  resetPassword,
-  type StoredUser, 
-  type UserRole 
-} from "@/lib/user-storage"
+import { useUsers } from "@/lib/hooks/use-data"
+import type { UserRole } from "@/lib/types"
 import {
   UserPlus,
   Mail,
@@ -55,10 +48,23 @@ import {
   Search,
   Calendar,
   Clock,
+  Loader2,
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 import { toast } from "sonner"
+
+interface StoredUser {
+  id: string
+  username: string
+  name: string
+  email: string
+  role: UserRole
+  department?: string
+  isActive: boolean
+  createdAt: string
+  lastLogin?: string
+}
 
 export default function UsersPage() {
   return (
@@ -69,7 +75,7 @@ export default function UsersPage() {
 }
 
 function UsersPageContent() {
-  const [users, setUsers] = useState<StoredUser[]>(getUsers())
+  const { users, isLoading, createUser, updateUser, deleteUser, resetPassword } = useUsers()
   const [isAddingUser, setIsAddingUser] = useState(false)
   const [editingUser, setEditingUser] = useState<StoredUser | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -90,14 +96,10 @@ function UsersPageContent() {
     isActive: true,
   })
 
-  const refreshUsers = useCallback(() => {
-    setUsers(getUsers())
-  }, [])
-
   const filteredUsers = useMemo(() => {
     if (!searchQuery) return users
     const query = searchQuery.toLowerCase()
-    return users.filter(u => 
+    return users.filter((u: StoredUser) => 
       u.name.toLowerCase().includes(query) ||
       u.username.toLowerCase().includes(query) ||
       u.email.toLowerCase().includes(query) ||
@@ -107,10 +109,10 @@ function UsersPageContent() {
 
   const stats = useMemo(() => ({
     total: users.length,
-    active: users.filter(u => u.isActive).length,
-    admins: users.filter(u => u.role === "admin").length,
-    employees: users.filter(u => u.role === "employee").length,
-    requesters: users.filter(u => u.role === "requester").length,
+    active: users.filter((u: StoredUser) => u.isActive).length,
+    admins: users.filter((u: StoredUser) => u.role === "admin").length,
+    employees: users.filter((u: StoredUser) => u.role === "employee").length,
+    requesters: users.filter((u: StoredUser) => u.role === "requester").length,
   }), [users])
 
   const resetForm = useCallback(() => {
@@ -125,13 +127,13 @@ function UsersPageContent() {
     })
   }, [])
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     
     try {
       if (editingUser) {
         const { password, ...updates } = formData
-        updateUser(editingUser.id, updates)
+        await updateUser(editingUser.id, updates)
         toast.success("Usuario actualizado correctamente")
         setEditingUser(null)
         setEditDialogOpen(false)
@@ -140,16 +142,15 @@ function UsersPageContent() {
           toast.error("La contrasena es requerida")
           return
         }
-        addUser(formData)
+        await createUser(formData)
         toast.success("Usuario creado correctamente")
         setIsAddingUser(false)
       }
       resetForm()
-      refreshUsers()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al guardar usuario")
     }
-  }, [editingUser, formData, resetForm, refreshUsers])
+  }, [editingUser, formData, resetForm, updateUser, createUser])
 
   const handleEdit = useCallback((user: StoredUser) => {
     setEditingUser(user)
@@ -165,23 +166,22 @@ function UsersPageContent() {
     setEditDialogOpen(true)
   }, [])
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!userToDelete) return
     try {
-      deleteUser(userToDelete.id)
+      await deleteUser(userToDelete.id)
       toast.success("Usuario eliminado correctamente")
-      refreshUsers()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al eliminar usuario")
     }
     setUserToDelete(null)
     setDeleteDialogOpen(false)
-  }, [userToDelete, refreshUsers])
+  }, [userToDelete, deleteUser])
 
-  const handleResetPassword = useCallback(() => {
+  const handleResetPassword = useCallback(async () => {
     if (!userToResetPassword || !newPassword) return
     try {
-      resetPassword(userToResetPassword.id, newPassword)
+      await resetPassword(userToResetPassword.id, newPassword)
       toast.success("Contrasena restablecida correctamente")
       setNewPassword("")
       setUserToResetPassword(null)
@@ -189,7 +189,7 @@ function UsersPageContent() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al restablecer contrasena")
     }
-  }, [userToResetPassword, newPassword])
+  }, [userToResetPassword, newPassword, resetPassword])
 
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
@@ -332,6 +332,20 @@ function UsersPageContent() {
     </form>
   )
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
+            <p className="text-slate-600">Cargando usuarios...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       <DashboardHeader />
@@ -450,7 +464,7 @@ function UsersPageContent() {
 
         {/* Users Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredUsers.map((user) => {
+          {filteredUsers.map((user: StoredUser) => {
             const initials = user.name
               .split(" ")
               .map((n) => n[0])
@@ -544,12 +558,12 @@ function UsersPageContent() {
                   <div className="pt-2 border-t text-xs text-muted-foreground space-y-1">
                     <div className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
-                      Creado: {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: es })}
+                      Creado {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: es })}
                     </div>
                     {user.lastLogin && (
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        Ultimo acceso: {formatDistanceToNow(new Date(user.lastLogin), { addSuffix: true, locale: es })}
+                        Ultimo acceso {formatDistanceToNow(new Date(user.lastLogin), { addSuffix: true, locale: es })}
                       </div>
                     )}
                   </div>
@@ -558,13 +572,6 @@ function UsersPageContent() {
             )
           })}
         </div>
-
-        {filteredUsers.length === 0 && (
-          <div className="text-center py-12">
-            <Users className="h-12 w-12 mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-500">No se encontraron usuarios</p>
-          </div>
-        )}
 
         {/* Edit Dialog */}
         <Dialog
@@ -587,49 +594,59 @@ function UsersPageContent() {
         </Dialog>
 
         {/* Reset Password Dialog */}
-        <Dialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Restablecer Contrasena</DialogTitle>
-              <DialogDescription>
-                Establece una nueva contrasena para {userToResetPassword?.name}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">Nueva Contrasena</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Nueva contrasena"
-                />
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setResetPasswordDialogOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleResetPassword} disabled={!newPassword}>
-                  Restablecer
-                </Button>
-              </DialogFooter>
+        <AlertDialog open={resetPasswordDialogOpen} onOpenChange={setResetPasswordDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restablecer Contrasena</AlertDialogTitle>
+              <AlertDialogDescription>
+                Ingresa la nueva contrasena para {userToResetPassword?.name}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-2 py-4">
+              <Label htmlFor="new-password">Nueva Contrasena</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="********"
+              />
             </div>
-          </DialogContent>
-        </Dialog>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setNewPassword("")
+                setUserToResetPassword(null)
+              }}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleResetPassword}
+                disabled={!newPassword}
+                className="bg-amber-500 hover:bg-amber-600"
+              >
+                Restablecer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-        {/* Delete Confirmation */}
+        {/* Delete Dialog */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Eliminar Usuario</AlertDialogTitle>
               <AlertDialogDescription>
-                Esta seguro de eliminar a {userToDelete?.name}? Esta accion no se puede deshacer.
+                Esta accion no se puede deshacer. Se eliminara permanentemente el usuario {userToDelete?.name}.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">
+              <AlertDialogCancel onClick={() => setUserToDelete(null)}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-red-500 hover:bg-red-600"
+              >
                 Eliminar
               </AlertDialogAction>
             </AlertDialogFooter>

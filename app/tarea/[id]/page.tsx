@@ -1,26 +1,22 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { getTaskById, updateTask, addComment, deleteTask } from "@/lib/task-storage"
-import { getEmployees } from "@/lib/employee-storage"
-import type { Task, TaskStatus, TaskPriority } from "@/lib/types"
+import { useTask, useEmployees } from "@/lib/hooks/use-data"
+import type { TaskStatus, TaskPriority } from "@/lib/types"
 import {
   ArrowLeft,
   User,
-  Building2,
-  AlertCircle,
   MessageSquare,
   Trash2,
   Edit2,
@@ -30,11 +26,9 @@ import {
   Download,
   X,
   ZoomIn,
-  Maximize2,
   FileAudio,
   Paperclip,
-  Calendar,
-  Clock,
+  Loader2,
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
@@ -62,7 +56,11 @@ function TaskDetailContent() {
   const router = useRouter()
   const params = useParams()
   const { user, isAdmin } = useAuth()
-  const [task, setTask] = useState<Task | null>(null)
+  const taskId = params.id as string
+  
+  const { task, isLoading, updateTask, deleteTask, addComment } = useTask(taskId)
+  const { employees } = useEmployees()
+  
   const [newComment, setNewComment] = useState("")
   const [isSubmittingComment, setIsSubmittingComment] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -73,86 +71,67 @@ function TaskDetailContent() {
     dueDate: "",
   })
 
-  const taskId = params.id as string
-  const employees = getEmployees()
-
-  useEffect(() => {
-    const loadTask = () => {
-      const foundTask = getTaskById(taskId)
-      if (foundTask) {
-        setTask(foundTask)
-        setEditForm({
-          title: foundTask.title,
-          description: foundTask.description,
-          dueDate: foundTask.dueDate ? format(new Date(foundTask.dueDate), "yyyy-MM-dd") : "",
-        })
-      } else {
-        router.push("/dashboard")
-      }
+  // Initialize edit form when task loads
+  const initializeEditForm = useCallback(() => {
+    if (task && !editForm.title) {
+      setEditForm({
+        title: task.title,
+        description: task.description,
+        dueDate: task.dueDate ? format(new Date(task.dueDate), "yyyy-MM-dd") : "",
+      })
     }
+  }, [task, editForm.title])
+  
+  // Call this when task loads
+  if (task && !editForm.title) {
+    initializeEditForm()
+  }
 
-    loadTask()
-    const interval = setInterval(loadTask, 5000)
-    return () => clearInterval(interval)
-  }, [taskId, router])
-
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!task) return
-    const updated = updateTask(task.id, {
+    await updateTask({
       title: editForm.title,
       description: editForm.description,
-      dueDate: editForm.dueDate ? new Date(editForm.dueDate) : undefined,
+      dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : undefined,
     })
-    if (updated) {
-      setTask(updated)
-      setIsEditing(false)
-    }
+    setIsEditing(false)
   }
 
-  const handleStatusChange = (newStatus: TaskStatus) => {
+  const handleStatusChange = async (newStatus: TaskStatus) => {
     if (!task) return
-    const updated = updateTask(task.id, {
+    await updateTask({
       status: newStatus,
-      completedAt: newStatus === "completada" ? new Date() : undefined,
+      completedAt: newStatus === "completada" ? new Date().toISOString() : undefined,
     })
-    if (updated) setTask(updated)
   }
 
-  const handlePriorityChange = (newPriority: TaskPriority) => {
+  const handlePriorityChange = async (newPriority: TaskPriority) => {
     if (!task) return
-    const updated = updateTask(task.id, { priority: newPriority })
-    if (updated) setTask(updated)
+    await updateTask({ priority: newPriority })
   }
 
-  const handleAssignTo = (employeeId: string) => {
+  const handleAssignTo = async (employeeId: string) => {
     if (!task) return
     const employee = employees.find((e) => e.id === employeeId)
     if (!employee) return
-    const updated = updateTask(task.id, {
-      assignedTo: { id: employee.id, name: employee.name },
+    await updateTask({
+      assignedToId: employee.id,
+      assignedToName: employee.name,
     })
-    if (updated) setTask(updated)
   }
 
   const handleAddComment = async () => {
     if (!task || !user || !newComment.trim()) return
     setIsSubmittingComment(true)
-    const comment = addComment(task.id, {
-      userId: user.id,
-      userName: user.name,
-      comment: newComment.trim(),
-    })
-    if (comment) {
-      const updatedTask = getTaskById(task.id)
-      if (updatedTask) setTask(updatedTask)
-      setNewComment("")
-    }
+    await addComment(newComment.trim())
+    setNewComment("")
     setIsSubmittingComment(false)
   }
 
-  const handleDeleteTask = () => {
+  const handleDeleteTask = async () => {
     if (!task) return
-    if (deleteTask(task.id)) router.push("/dashboard")
+    await deleteTask()
+    router.push("/dashboard")
   }
 
   const handleDownload = (url: string, filename: string) => {
@@ -202,12 +181,15 @@ function TaskDetailContent() {
 
   const formatPriority = (priority: string) => priority.charAt(0).toUpperCase() + priority.slice(1)
 
-  if (!task) {
+  if (isLoading || !task) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
         <DashboardHeader />
-        <div className="container mx-auto px-4 py-8 text-center">
-          <p>Cargando...</p>
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto mb-4" />
+            <p className="text-slate-600">Cargando tarea...</p>
+          </div>
         </div>
       </div>
     )
@@ -488,12 +470,12 @@ function TaskDetailContent() {
                   </div>
                   <span>Comentarios</span>
                   <Badge variant="secondary" className="bg-cyan-100 text-cyan-700">
-                    {task.comments.length}
+                    {task.comments?.length || 0}
                   </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 p-4">
-                {task.comments.length === 0 ? (
+                {(!task.comments || task.comments.length === 0) ? (
                   <div className="text-center py-8">
                     <MessageSquare className="h-10 w-10 mx-auto text-gray-300 mb-3" />
                     <p className="text-gray-400">No hay comentarios todavia</p>
@@ -505,34 +487,40 @@ function TaskDetailContent() {
                         key={comment.id}
                         className="border-2 rounded-xl p-4 bg-gradient-to-r from-gray-50 to-white hover:shadow-sm transition-shadow"
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-semibold text-sm text-indigo-700">{comment.userName}</p>
-                          <p className="text-xs text-gray-400">
-                            {formatDistanceToNow(comment.createdAt, { addSuffix: true, locale: es })}
-                          </p>
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                            {comment.userName.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-sm text-gray-800">{comment.userName}</p>
+                            <p className="text-xs text-gray-400">
+                              {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: es })}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-sm text-gray-600 whitespace-pre-wrap">{comment.comment}</p>
+                        <p className="text-gray-600 text-sm pl-11">{comment.comment}</p>
                       </div>
                     ))}
                   </div>
                 )}
 
-                <div className="pt-4 border-t-2 space-y-3">
-                  <Textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Escribe un comentario..."
-                    rows={3}
-                    disabled={isSubmittingComment}
-                    className="border-2"
-                  />
-                  <Button
-                    onClick={handleAddComment}
-                    disabled={isSubmittingComment || !newComment.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                  >
-                    {isSubmittingComment ? "Enviando..." : "Agregar Comentario"}
-                  </Button>
+                <div className="pt-4 border-t">
+                  <div className="flex gap-3">
+                    <Textarea
+                      placeholder="Escribe un comentario..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      className="flex-1 resize-none"
+                      rows={2}
+                    />
+                    <Button
+                      onClick={handleAddComment}
+                      disabled={!newComment.trim() || isSubmittingComment}
+                      className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white"
+                    >
+                      {isSubmittingComment ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar"}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -540,136 +528,16 @@ function TaskDetailContent() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Info Card */}
-            <Card className="border-2 shadow-lg overflow-hidden">
-              <CardHeader className="border-b bg-gray-50">
-                <CardTitle className="text-base">Informacion de la Solicitud</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5 pt-5">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-indigo-50 rounded-lg flex-shrink-0">
-                    <User className="h-4 w-4 text-indigo-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Solicitado por</p>
-                    <p className="font-semibold text-gray-800">{task.requestedBy.name}</p>
-                    <p className="text-sm text-gray-500">{task.requestedBy.email}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-amber-50 rounded-lg flex-shrink-0">
-                    <Building2 className="h-4 w-4 text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Departamento</p>
-                    <p className="font-semibold text-gray-800">{task.requesterDepartment || task.requestedBy.department}</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: `${empColor}15` }}>
-                    <User className="h-4 w-4" style={{ color: empColor }} />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Asignado a</p>
-                    {isAdmin ? (
-                      <Select
-                        value={task.assignedTo?.id || "unassigned"}
-                        onValueChange={(value) => value !== "unassigned" && handleAssignTo(value)}
-                      >
-                        <SelectTrigger className="w-full mt-1">
-                          <SelectValue placeholder="Sin asignar" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Sin asignar</SelectItem>
-                          {employees
-                            .filter((e) => e.isActive)
-                            .map((employee) => (
-                              <SelectItem key={employee.id} value={employee.id}>
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="w-2.5 h-2.5 rounded-full"
-                                    style={{ backgroundColor: employee.color }}
-                                  />
-                                  {employee.name}
-                                </div>
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    ) : task.assignedTo ? (
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: empColor }} />
-                        <p className="font-semibold text-gray-800">{task.assignedTo.name}</p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-400 mt-1">No asignado</p>
-                    )}
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-green-50 rounded-lg flex-shrink-0">
-                    <Calendar className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Creada</p>
-                    <p className="font-medium text-gray-800 text-sm">{format(task.createdAt, "PPP", { locale: es })}</p>
-                  </div>
-                </div>
-
-                {task.dueDate && (
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-orange-50 rounded-lg flex-shrink-0">
-                      <Clock className="h-4 w-4 text-orange-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Vence</p>
-                      <p className="font-medium text-gray-800 text-sm">
-                        {format(new Date(task.dueDate), "PPP", { locale: es })}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {task.completedAt && (
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-emerald-50 rounded-lg flex-shrink-0">
-                      <Calendar className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Completada</p>
-                      <p className="font-medium text-gray-800 text-sm">
-                        {format(task.completedAt, "PPP", { locale: es })}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="text-xs text-gray-300 pt-2 border-t">
-                  Categoria: <span className="capitalize text-gray-500">{task.category}</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Admin Controls */}
+            {/* Actions */}
             {isAdmin && (
-              <Card className="border-2 shadow-lg overflow-hidden">
-                <CardHeader className="border-b bg-gray-50">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-orange-500" />
-                    Gestion de Tarea
-                  </CardTitle>
+              <Card className="border-2 shadow-lg">
+                <CardHeader>
+                  <CardTitle className="text-lg">Acciones</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4 pt-5">
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-400 font-medium uppercase tracking-wider">Estado</Label>
-                    <Select value={task.status} onValueChange={(value) => handleStatusChange(value as TaskStatus)}>
+                    <Label>Estado</Label>
+                    <Select value={task.status} onValueChange={(v) => handleStatusChange(v as TaskStatus)}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -683,11 +551,8 @@ function TaskDetailContent() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-400 font-medium uppercase tracking-wider">Prioridad</Label>
-                    <Select
-                      value={task.priority}
-                      onValueChange={(value) => handlePriorityChange(value as TaskPriority)}
-                    >
+                    <Label>Prioridad</Label>
+                    <Select value={task.priority} onValueChange={(v) => handlePriorityChange(v as TaskPriority)}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -699,42 +564,65 @@ function TaskDetailContent() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label>Asignar a</Label>
+                    <Select value={task.assignedTo?.id || ""} onValueChange={handleAssignTo}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sin asignar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employees.map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: emp.color }} />
+                              {emp.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Current Status Card */}
-            <Card className="border-2 shadow-lg overflow-hidden">
-              <CardContent className="pt-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">Estado</span>
-                  <Badge className={getStatusColor(task.status)}>{formatStatus(task.status)}</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-500">Prioridad</span>
-                  <Badge className={getPriorityColor(task.priority)}>{formatPriority(task.priority)}</Badge>
-                </div>
-                {task.attachments && task.attachments.length > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Adjuntos</span>
-                    <div className="flex items-center gap-1.5">
-                      {images.length > 0 && (
-                        <Badge variant="outline" className="border-rose-200 text-rose-600">
-                          <ImageIcon className="h-3 w-3 mr-1" />{images.length}
-                        </Badge>
-                      )}
-                      {audios.length > 0 && (
-                        <Badge variant="outline" className="border-violet-200 text-violet-600">
-                          <Mic className="h-3 w-3 mr-1" />{audios.length}
-                        </Badge>
-                      )}
-                    </div>
+            {/* Info */}
+            <Card className="border-2 shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-lg">Informacion</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <User className="h-5 w-5 text-gray-400" />
+                  <div>
+                    <p className="text-sm font-medium">{task.requestedBy.name}</p>
+                    <p className="text-xs text-gray-400">{task.requestedBy.department}</p>
                   </div>
-                )}
-                <Separator />
-                <p className="text-xs text-gray-300">
-                  Actualizada {formatDistanceToNow(task.updatedAt, { addSuffix: true, locale: es })}
-                </p>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Categoria</span>
+                    <span className="font-medium capitalize">{task.category}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Creada</span>
+                    <span className="font-medium">{format(new Date(task.createdAt), "dd/MM/yyyy HH:mm")}</span>
+                  </div>
+                  {task.dueDate && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Vencimiento</span>
+                      <span className="font-medium">{format(new Date(task.dueDate), "dd/MM/yyyy")}</span>
+                    </div>
+                  )}
+                  {task.completedAt && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Completada</span>
+                      <span className="font-medium text-emerald-600">{format(new Date(task.completedAt), "dd/MM/yyyy HH:mm")}</span>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
