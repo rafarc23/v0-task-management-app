@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { ClipboardList, Clock, CheckCircle2, AlertCircle, TrendingUp, Users } from "lucide-react"
 import type { Task } from "@/lib/types"
@@ -8,19 +9,23 @@ interface StatsCardsProps {
   tasks: Task[]
 }
 
-export function StatsCards({ tasks }: StatsCardsProps) {
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter((t) => t.status === "pendiente").length,
-    inProgress: tasks.filter((t) => t.status === "en_proceso").length,
-    completed: tasks.filter((t) => t.status === "completada").length,
-    urgent: tasks.filter((t) => t.priority === "urgente").length,
-    assigned: tasks.filter((t) => t.assignedTo).length,
-  }
+export const StatsCards = memo(function StatsCards({ tasks }: StatsCardsProps) {
+  // Memoize stats calculation - single pass through tasks array
+  const stats = useMemo(() => {
+    let pending = 0, inProgress = 0, completed = 0, urgent = 0, assigned = 0
+    tasks.forEach(t => {
+      if (t.status === "pendiente") pending++
+      else if (t.status === "en_proceso") inProgress++
+      else if (t.status === "completada") completed++
+      if (t.priority === "urgente") urgent++
+      if (t.assignedTo) assigned++
+    })
+    return { total: tasks.length, pending, inProgress, completed, urgent, assigned }
+  }, [tasks])
 
   const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0
 
-  const cards = [
+  const cards = useMemo(() => [
     {
       title: "Total Tareas",
       value: stats.total,
@@ -69,7 +74,7 @@ export function StatsCards({ tasks }: StatsCardsProps) {
       bgGradient: "from-violet-500 to-violet-600",
       lightBg: "bg-violet-50",
     },
-  ]
+  ], [stats, completionRate])
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -97,4 +102,4 @@ export function StatsCards({ tasks }: StatsCardsProps) {
       })}
     </div>
   )
-}
+})

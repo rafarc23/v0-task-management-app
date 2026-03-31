@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
@@ -12,30 +12,36 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Shield, Wrench, Send } from "lucide-react"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const { login } = useAuth()
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setIsLoading(true)
-    const success = await login(email, password)
-    if (success) {
-      router.push("/dashboard")
-    } else {
-      setError("Credenciales incorrectas. Intente de nuevo.")
+    
+    try {
+      const success = await login(username, password)
+      if (success) {
+        router.push("/dashboard")
+      } else {
+        setError("Credenciales incorrectas o usuario inactivo.")
+      }
+    } catch {
+      setError("Error al iniciar sesion. Intente de nuevo.")
+    } finally {
+      setIsLoading(false)
     }
-    setIsLoading(false)
-  }
+  }, [username, password, login, router])
 
-  const fillDemo = (email: string, pass: string) => {
-    setEmail(email)
+  const fillDemo = useCallback((user: string, pass: string) => {
+    setUsername(user)
     setPassword(pass)
-  }
+  }, [])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950 p-4">
@@ -54,16 +60,17 @@ export default function LoginPage() {
         <CardContent className="pt-2">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-slate-700">Correo Electronico</Label>
+              <Label htmlFor="username" className="text-slate-700">Usuario o Correo</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="usuario@empresa.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder="admin o usuario@empresa.com"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
                 disabled={isLoading}
                 className="h-11"
+                autoComplete="username"
               />
             </div>
             <div className="space-y-2">
@@ -76,6 +83,7 @@ export default function LoginPage() {
                 required
                 disabled={isLoading}
                 className="h-11"
+                autoComplete="current-password"
               />
             </div>
 
@@ -85,16 +93,20 @@ export default function LoginPage() {
               </Alert>
             )}
 
-            <Button type="submit" className="w-full h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold" disabled={isLoading}>
+            <Button 
+              type="submit" 
+              className="w-full h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold" 
+              disabled={isLoading}
+            >
               {isLoading ? "Iniciando sesion..." : "Iniciar Sesion"}
             </Button>
 
             <div className="pt-4 border-t border-slate-200 space-y-3">
-              <p className="text-sm font-semibold text-slate-600 text-center">Accesos de demostracion</p>
+              <p className="text-sm font-semibold text-slate-600 text-center">Accesos rapidos</p>
               <div className="grid gap-2">
                 <button
                   type="button"
-                  onClick={() => fillDemo("admin@empresa.com", "admin123")}
+                  onClick={() => fillDemo("admin", "Cima1100")}
                   className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all text-left"
                 >
                   <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center flex-shrink-0">
@@ -102,7 +114,7 @@ export default function LoginPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-slate-800">Administrador</p>
-                    <p className="text-xs text-slate-500">Gestiona equipo, tareas e informes</p>
+                    <p className="text-xs text-slate-500">Gestion completa del sistema</p>
                   </div>
                 </button>
                 <button
@@ -115,7 +127,7 @@ export default function LoginPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-slate-800">Operario / Empleado</p>
-                    <p className="text-xs text-slate-500">Ve sus tareas asignadas y avanza</p>
+                    <p className="text-xs text-slate-500">Ve sus tareas asignadas</p>
                   </div>
                 </button>
                 <button
@@ -128,7 +140,7 @@ export default function LoginPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-slate-800">Solicitante</p>
-                    <p className="text-xs text-slate-500">Pide tareas y ve el estado de sus solicitudes</p>
+                    <p className="text-xs text-slate-500">Solicita tareas y ve su estado</p>
                   </div>
                 </button>
               </div>

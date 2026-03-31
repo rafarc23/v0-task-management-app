@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { LogOut, Users, LayoutDashboard, Plus, BarChart3, Bell, ClipboardList, FolderKanban, Send, Wrench, Archive } from "lucide-react"
+import { LogOut, Users, LayoutDashboard, Plus, BarChart3, Bell, ClipboardList, FolderKanban, Send, Wrench, Archive, UserCog } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { getUserNotifications, getUnreadCount, markAsRead, markAllAsRead } from "@/lib/notification-storage"
@@ -35,7 +35,8 @@ export function DashboardHeader() {
       setUnreadCount(getUnreadCount(user.id))
     }
     loadNotifications()
-    const interval = setInterval(loadNotifications, 5000)
+    // Reduced from 5s to 30s for better performance on low-resource servers
+    const interval = setInterval(loadNotifications, 30000)
     return () => clearInterval(interval)
   }, [user])
 
@@ -130,6 +131,7 @@ export function DashboardHeader() {
               <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva" />
               <NavButton href="/mis-tareas" icon={ClipboardList} label="Mis Tareas" />
               <NavButton href="/equipo" icon={Users} label="Equipo" />
+              <NavButton href="/usuarios" icon={UserCog} label="Usuarios" />
               <NavButton href="/proyectos" icon={FolderKanban} label="Proyectos" />
               <NavButton href="/informes" icon={BarChart3} label="Informes" />
               <NavButton href="/archivo" icon={Archive} label="Archivo" />

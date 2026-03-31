@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { Task, TaskStatus } from "@/lib/types"
@@ -10,17 +11,29 @@ interface KanbanViewProps {
   onTaskClick: (taskId: string) => void
 }
 
-export function KanbanView({ tasks, onTaskClick }: KanbanViewProps) {
-  const columns: { status: TaskStatus; title: string; icon: any; color: string }[] = [
-    { status: "pendiente", title: "Pendientes", icon: Clock, color: "text-yellow-600" },
-    { status: "en_proceso", title: "En Proceso", icon: AlertCircle, color: "text-blue-600" },
-    { status: "completada", title: "Completadas", icon: CheckCircle2, color: "text-green-600" },
-    { status: "cancelada", title: "Canceladas", icon: XCircle, color: "text-gray-600" },
-  ]
+// Static columns definition (outside component to avoid recreation)
+const COLUMNS: { status: TaskStatus; title: string; icon: typeof Clock; color: string }[] = [
+  { status: "pendiente", title: "Pendientes", icon: Clock, color: "text-yellow-600" },
+  { status: "en_proceso", title: "En Proceso", icon: AlertCircle, color: "text-blue-600" },
+  { status: "completada", title: "Completadas", icon: CheckCircle2, color: "text-green-600" },
+  { status: "cancelada", title: "Canceladas", icon: XCircle, color: "text-gray-600" },
+]
 
-  const getTasksByStatus = (status: TaskStatus) => {
-    return tasks.filter((task) => task.status === status)
-  }
+export const KanbanView = memo(function KanbanView({ tasks, onTaskClick }: KanbanViewProps) {
+  // Memoize tasks grouped by status for O(1) access per column
+  const tasksByStatus = useMemo(() => {
+    const grouped = new Map<TaskStatus, Task[]>()
+    COLUMNS.forEach(col => grouped.set(col.status, []))
+    tasks.forEach(task => {
+      const list = grouped.get(task.status)
+      if (list) list.push(task)
+    })
+    return grouped
+  }, [tasks])
+
+  const getTasksByStatus = useCallback((status: TaskStatus) => {
+    return tasksByStatus.get(status) || []
+  }, [tasksByStatus])
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -43,7 +56,7 @@ export function KanbanView({ tasks, onTaskClick }: KanbanViewProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {columns.map((column) => {
+      {COLUMNS.map((column) => {
         const columnTasks = getTasksByStatus(column.status)
         const Icon = column.icon
 
@@ -102,4 +115,4 @@ export function KanbanView({ tasks, onTaskClick }: KanbanViewProps) {
       })}
     </div>
   )
-}
+})

@@ -1,9 +1,10 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { validateCredentials, getUserById, type StoredUser, type UserRole } from "./user-storage"
 
-export type UserRole = "employee" | "admin" | "requester"
+export type { UserRole }
 
 export interface User {
   id: string
@@ -12,14 +13,15 @@ export interface User {
   role: UserRole
   department?: string
   avatar?: string
-  employeeId?: string // linked employee profile
+  employeeId?: string
 }
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<boolean>
+  login: (username: string, password: string) => Promise<boolean>
   logout: () => void
   setEmployeeProfile: (employeeId: string, name: string, email: string) => void
+  refreshUser: () => void
   isAuthenticated: boolean
   isAdmin: boolean
   isRequester: boolean
@@ -28,72 +30,67 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function storedUserToUser(stored: StoredUser): User {
+  return {
+    id: stored.id,
+    email: stored.email,
+    name: stored.name,
+    role: stored.role,
+    department: stored.department,
+    avatar: stored.avatar,
+    employeeId: stored.employeeId,
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const router = useRouter()
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user")
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
+    const storedUserId = localStorage.getItem("userId")
+    if (storedUserId) {
+      const stored = getUserById(storedUserId)
+      if (stored && stored.isActive) {
+        setUser(storedUserToUser(stored))
+      } else {
+        // User was deleted or deactivated
+        localStorage.removeItem("userId")
+      }
     }
   }, [])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    const demoUsers: Record<string, { password: string; user: User }> = {
-      "admin@empresa.com": {
-        password: "admin123",
-        user: {
-          id: "1",
-          email: "admin@empresa.com",
-          name: "Administrador",
-          role: "admin",
-          department: "Infraestructura y TI",
-        },
-      },
-      "empleado@empresa.com": {
-        password: "empleado123",
-        user: {
-          id: "2",
-          email: "empleado@empresa.com",
-          name: "Operario",
-          role: "employee",
-          department: "Infraestructura y TI",
-        },
-      },
-      "solicitante@empresa.com": {
-        password: "solicitante123",
-        user: {
-          id: "3",
-          email: "solicitante@empresa.com",
-          name: "Ana Martinez",
-          role: "requester",
-          department: "Produccion",
-        },
-      },
-    }
-
-    const userCredentials = demoUsers[email]
-    if (userCredentials && userCredentials.password === password) {
-      setUser(userCredentials.user)
-      localStorage.setItem("user", JSON.stringify(userCredentials.user))
+  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+    const stored = validateCredentials(username, password)
+    if (stored) {
+      const userData = storedUserToUser(stored)
+      setUser(userData)
+      localStorage.setItem("userId", stored.id)
       return true
     }
     return false
-  }
+  }, [])
 
-  const setEmployeeProfile = (employeeId: string, name: string, email: string) => {
+  const setEmployeeProfile = useCallback((employeeId: string, name: string, email: string) => {
     if (!user) return
     const updatedUser = { ...user, employeeId, name, email }
     setUser(updatedUser)
-    localStorage.setItem("user", JSON.stringify(updatedUser))
-  }
+  }, [user])
 
-  const logout = () => {
+  const refreshUser = useCallback(() => {
+    const storedUserId = localStorage.getItem("userId")
+    if (storedUserId) {
+      const stored = getUserById(storedUserId)
+      if (stored && stored.isActive) {
+        setUser(storedUserToUser(stored))
+      }
+    }
+  }, [])
+
+  const logout = useCallback(() => {
     setUser(null)
-    localStorage.removeItem("user")
+    localStorage.removeItem("userId")
     router.push("/login")
-  }
+  }, [router])
 
   return (
     <AuthContext.Provider
@@ -102,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         setEmployeeProfile,
+        refreshUser,
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
         isRequester: user?.role === "requester",

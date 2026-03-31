@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo, useCallback, memo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getTasks, archiveOldTasks } from "@/lib/task-storage"
 import { getEmployees } from "@/lib/employee-storage"
-import type { Task } from "@/lib/types"
+import type { Task, Employee } from "@/lib/types"
 import {
   Calendar, List, LayoutGrid, ClipboardList, User,
   Image as ImageIcon, Mic, ChevronRight, Search, AlertTriangle
@@ -37,47 +37,68 @@ function DashboardContent() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [filterEmployee, setFilterEmployee] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
-  const employees = getEmployees()
+  const [employees, setEmployees] = useState<Employee[]>([])
+
+  // Load employees once on mount
+  useEffect(() => {
+    setEmployees(getEmployees())
+  }, [])
+
+  // Memoized task loading function
+  const loadTasks = useCallback(() => {
+    const allTasks = getTasks()
+    let filteredTasks = allTasks
+    if (filterEmployee !== "all") {
+      filteredTasks = allTasks.filter((t) => t.assignedTo?.id === filterEmployee)
+    } else if (!isAdmin) {
+      filteredTasks = allTasks.filter((t) => t.requestedBy.id === user?.id)
+    }
+    setTasks(filteredTasks)
+  }, [filterEmployee, isAdmin, user?.id])
 
   useEffect(() => {
     if (user?.role === "requester") {
       router.push("/mis-solicitudes")
       return
     }
-    // Auto-archive old completed tasks
+    // Auto-archive old completed tasks (only once on mount)
     archiveOldTasks()
-
-    const loadTasks = () => {
-      const allTasks = getTasks()
-      let filteredTasks = allTasks
-      if (filterEmployee !== "all") {
-        filteredTasks = allTasks.filter((t) => t.assignedTo?.id === filterEmployee)
-      } else if (!isAdmin) {
-        filteredTasks = allTasks.filter((t) => t.requestedBy.id === user?.id)
-      }
-      setTasks(filteredTasks)
-    }
     loadTasks()
-    const interval = setInterval(loadTasks, 5000)
+    
+    // Reduced polling interval from 5s to 30s for better performance on low-resource servers
+    const interval = setInterval(loadTasks, 30000)
     return () => clearInterval(interval)
-  }, [user, isAdmin, filterEmployee])
+  }, [user, isAdmin, filterEmployee, router, loadTasks])
 
-  const filteredTasks = searchQuery
-    ? tasks.filter((t) =>
-        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.assignedTo?.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : tasks
+  // Memoized search and filter
+  const filteredTasks = useMemo(() => {
+    if (!searchQuery) return tasks
+    const query = searchQuery.toLowerCase()
+    return tasks.filter((t) =>
+      t.title.toLowerCase().includes(query) ||
+      t.description.toLowerCase().includes(query) ||
+      t.assignedTo?.name.toLowerCase().includes(query)
+    )
+  }, [tasks, searchQuery])
 
-  const assignedTasks = filteredTasks.filter((t) => t.assignedTo)
-  const unassignedTasks = filteredTasks.filter((t) => !t.assignedTo)
+  const { assignedTasks, unassignedTasks } = useMemo(() => ({
+    assignedTasks: filteredTasks.filter((t) => t.assignedTo),
+    unassignedTasks: filteredTasks.filter((t) => !t.assignedTo)
+  }), [filteredTasks])
 
-  const getEmployeeColor = (employeeId?: string) => {
+  // Memoized employee color lookup map for O(1) access
+  const employeeColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    employees.forEach(e => map.set(e.id, e.color))
+    return map
+  }, [employees])
+
+  const getEmployeeColor = useCallback((employeeId?: string) => {
     if (!employeeId) return "#9ca3af"
-    return employees.find((e) => e.id === employeeId)?.color || "#9ca3af"
-  }
+    return employeeColorMap.get(employeeId) || "#9ca3af"
+  }, [employeeColorMap])
 
+  // Static helper functions (no dependencies, defined outside render)
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case "urgente": return "bg-red-500 text-white"
@@ -110,7 +131,8 @@ function DashboardContent() {
 
   const formatPriority = (p: string) => p.charAt(0).toUpperCase() + p.slice(1)
 
-  function TaskRow({ task, highlighted }: { task: Task; highlighted?: boolean }) {
+  // Memoized TaskRow component to prevent unnecessary re-renders
+  const TaskRow = memo(function TaskRow({ task, highlighted }: { task: Task; highlighted?: boolean }) {
     const empColor = getEmployeeColor(task.assignedTo?.id)
     const hasImages = task.attachments?.some((a) => a.type === "image")
     const hasAudios = task.attachments?.some((a) => a.type === "audio")
@@ -167,7 +189,7 @@ function DashboardContent() {
         <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-slate-500 transition-colors flex-shrink-0" />
       </div>
     )
-  }
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-blue-50 to-sky-50">

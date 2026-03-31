@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, useCallback, memo, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import type { Task } from "@/lib/types"
+import type { Task, Employee } from "@/lib/types"
 import { getEmployees } from "@/lib/employee-storage"
 import { ChevronLeft, ChevronRight, Image, Mic, Paperclip } from "lucide-react"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
@@ -16,49 +16,81 @@ interface CalendarViewProps {
   selectedEmployee?: string
 }
 
-export function CalendarView({ tasks, onTaskClick, selectedEmployee }: CalendarViewProps) {
+// Day names constant (outside component)
+const DAY_NAMES = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"]
+
+export const CalendarView = memo(function CalendarView({ tasks, onTaskClick, selectedEmployee }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
-  const employees = getEmployees()
+  const [employees, setEmployees] = useState<Employee[]>([])
 
-  const monthStart = startOfMonth(currentDate)
-  const monthEnd = endOfMonth(currentDate)
-  const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd })
+  // Load employees once on mount
+  useEffect(() => {
+    setEmployees(getEmployees())
+  }, [])
 
-  const firstDayOfWeek = getDay(monthStart)
-  const adjustedFirstDay = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1
+  // Memoize calendar calculations
+  const { monthStart, monthEnd, daysInMonth, adjustedFirstDay } = useMemo(() => {
+    const start = startOfMonth(currentDate)
+    const end = endOfMonth(currentDate)
+    const days = eachDayOfInterval({ start, end })
+    const firstDayOfWeek = getDay(start)
+    return {
+      monthStart: start,
+      monthEnd: end,
+      daysInMonth: days,
+      adjustedFirstDay: firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1
+    }
+  }, [currentDate])
 
-  const previousMonth = () => {
+  const previousMonth = useCallback(() => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))
-  }
+  }, [currentDate])
 
-  const nextMonth = () => {
+  const nextMonth = useCallback(() => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))
-  }
+  }, [currentDate])
 
-  const goToToday = () => {
+  const goToToday = useCallback(() => {
     setCurrentDate(new Date())
-  }
+  }, [])
 
-  const getEmployeeColor = (employeeId: string): string => {
-    const emp = employees.find((e) => e.id === employeeId)
-    return emp?.color || "#9ca3af"
-  }
-
-  const getEmployeeName = (employeeId: string): string => {
-    const emp = employees.find((e) => e.id === employeeId)
-    return emp?.name || "Desconocido"
-  }
-
-  const getTasksForDate = (date: Date) => {
-    return tasks.filter((task) => {
-      if (!task.dueDate) return false
-      const dateMatches = isSameDay(new Date(task.dueDate), date)
-      if (selectedEmployee) {
-        return dateMatches && task.assignedTo?.id === selectedEmployee
-      }
-      return dateMatches
+  // Memoized employee lookup maps for O(1) access
+  const { employeeColorMap, employeeNameMap } = useMemo(() => {
+    const colorMap = new Map<string, string>()
+    const nameMap = new Map<string, string>()
+    employees.forEach(e => {
+      colorMap.set(e.id, e.color)
+      nameMap.set(e.id, e.name)
     })
-  }
+    return { employeeColorMap: colorMap, employeeNameMap: nameMap }
+  }, [employees])
+
+  const getEmployeeColor = useCallback((employeeId: string): string => {
+    return employeeColorMap.get(employeeId) || "#9ca3af"
+  }, [employeeColorMap])
+
+  const getEmployeeName = useCallback((employeeId: string): string => {
+    return employeeNameMap.get(employeeId) || "Desconocido"
+  }, [employeeNameMap])
+
+  // Memoize tasks grouped by date for O(1) lookup
+  const tasksByDate = useMemo(() => {
+    const map = new Map<string, Task[]>()
+    tasks.forEach(task => {
+      if (!task.dueDate) return
+      const dateKey = format(new Date(task.dueDate), 'yyyy-MM-dd')
+      if (selectedEmployee && task.assignedTo?.id !== selectedEmployee) return
+      const existing = map.get(dateKey) || []
+      existing.push(task)
+      map.set(dateKey, existing)
+    })
+    return map
+  }, [tasks, selectedEmployee])
+
+  const getTasksForDate = useCallback((date: Date) => {
+    const dateKey = format(date, 'yyyy-MM-dd')
+    return tasksByDate.get(dateKey) || []
+  }, [tasksByDate])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -123,7 +155,7 @@ export function CalendarView({ tasks, onTaskClick, selectedEmployee }: CalendarV
       </CardHeader>
       <CardContent className="p-4">
         <div className="grid grid-cols-7 gap-1">
-          {["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"].map((day) => (
+          {DAY_NAMES.map((day) => (
             <div
               key={day}
               className="text-center text-xs font-bold text-indigo-600 uppercase tracking-wider py-3 border-b-2 border-indigo-100"
@@ -287,4 +319,4 @@ export function CalendarView({ tasks, onTaskClick, selectedEmployee }: CalendarV
       </CardContent>
     </Card>
   )
-}
+})
