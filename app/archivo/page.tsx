@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -9,14 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getArchivedTasks, archiveOldTasks } from "@/lib/task-storage"
-import { getEmployees } from "@/lib/employee-storage"
+import { useTasks, useEmployees } from "@/lib/hooks/use-data"
 import type { Task } from "@/lib/types"
 import {
   Archive, Search, User, Calendar, ChevronRight,
-  Filter, RefreshCw, FolderArchive, CheckCircle2
+  Filter, RefreshCw, FolderArchive, CheckCircle2, Loader2
 } from "lucide-react"
-import { format, formatDistanceToNow } from "date-fns"
+import { format } from "date-fns"
 import { es } from "date-fns/locale"
 
 export default function ArchivoPage() {
@@ -29,46 +28,74 @@ export default function ArchivoPage() {
 
 function ArchivoContent() {
   const router = useRouter()
-  const [archivedTasks, setArchivedTasks] = useState<Task[]>([])
+  const { tasks, isLoading: tasksLoading, mutate: mutateTasks } = useTasks({ includeArchived: true })
+  const { employees, isLoading: employeesLoading } = useEmployees()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterEmployee, setFilterEmployee] = useState("all")
   const [filterCategory, setFilterCategory] = useState("all")
   const [filterYear, setFilterYear] = useState("all")
-  const employees = getEmployees()
 
-  useEffect(() => {
-    archiveOldTasks()
-    setArchivedTasks(getArchivedTasks())
-  }, [])
+  // Get archived tasks (completed more than 30 days ago)
+  const archivedTasks = useMemo(() => {
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    
+    return tasks.filter(t => {
+      if (t.status !== "completada") return false
+      if (!t.completedAt) return false
+      const completedDate = new Date(t.completedAt)
+      return completedDate < thirtyDaysAgo
+    })
+  }, [tasks])
 
-  const handleForceArchive = () => {
-    const result = archiveOldTasks()
-    setArchivedTasks(getArchivedTasks())
-  }
+  const years = useMemo(() => 
+    Array.from(new Set(archivedTasks.map((t) => new Date(t.completedAt || t.createdAt).getFullYear()))).sort((a, b) => b - a)
+  , [archivedTasks])
+  
+  const categories = useMemo(() => 
+    Array.from(new Set(archivedTasks.map((t) => t.category)))
+  , [archivedTasks])
 
-  const years = Array.from(new Set(archivedTasks.map((t) => new Date(t.completedAt || t.createdAt).getFullYear()))).sort((a, b) => b - a)
-  const categories = Array.from(new Set(archivedTasks.map((t) => t.category)))
-
-  const filtered = archivedTasks.filter((t) => {
+  const filtered = useMemo(() => archivedTasks.filter((t) => {
     const matchSearch = !searchQuery || t.title.toLowerCase().includes(searchQuery.toLowerCase()) || t.description.toLowerCase().includes(searchQuery.toLowerCase())
     const matchEmp = filterEmployee === "all" || t.assignedTo?.id === filterEmployee
     const matchCat = filterCategory === "all" || t.category === filterCategory
     const matchYear = filterYear === "all" || new Date(t.completedAt || t.createdAt).getFullYear().toString() === filterYear
     return matchSearch && matchEmp && matchCat && matchYear
-  })
+  }), [archivedTasks, searchQuery, filterEmployee, filterCategory, filterYear])
 
   // Group by month
-  const grouped: Record<string, Task[]> = {}
-  filtered.forEach((t) => {
-    const date = new Date(t.completedAt || t.createdAt)
-    const key = format(date, "MMMM yyyy", { locale: es })
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(t)
-  })
+  const grouped = useMemo(() => {
+    const result: Record<string, Task[]> = {}
+    filtered.forEach((t) => {
+      const date = new Date(t.completedAt || t.createdAt)
+      const key = format(date, "MMMM yyyy", { locale: es })
+      if (!result[key]) result[key] = []
+      result[key].push(t)
+    })
+    return result
+  }, [filtered])
+
+  const employeeColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    employees.forEach(e => map.set(e.id, e.color))
+    return map
+  }, [employees])
 
   const getEmployeeColor = (id?: string) => {
     if (!id) return "#9ca3af"
-    return employees.find((e) => e.id === id)?.color || "#9ca3af"
+    return employeeColorMap.get(id) || "#9ca3af"
+  }
+
+  if (tasksLoading || employeesLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-stone-50 to-amber-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -92,7 +119,7 @@ function ArchivoContent() {
               <FolderArchive className="h-4 w-4 mr-1" />
               {archivedTasks.length} tareas archivadas
             </Badge>
-            <Button variant="outline" size="sm" onClick={handleForceArchive} className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => mutateTasks()} className="gap-2">
               <RefreshCw className="h-4 w-4" /> Actualizar
             </Button>
           </div>
@@ -166,18 +193,18 @@ function ArchivoContent() {
             </CardContent>
           </Card>
         ) : (
-          Object.entries(grouped).map(([month, tasks]) => (
+          Object.entries(grouped).map(([month, monthTasks]) => (
             <div key={month} className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
                   <Calendar className="h-4 w-4 text-white" />
                 </div>
                 <h2 className="text-lg font-bold text-slate-700 capitalize">{month}</h2>
-                <Badge variant="secondary" className="bg-amber-100 text-amber-700">{tasks.length} tareas</Badge>
+                <Badge variant="secondary" className="bg-amber-100 text-amber-700">{monthTasks.length} tareas</Badge>
               </div>
 
               <div className="space-y-2">
-                {tasks.map((task) => {
+                {monthTasks.map((task) => {
                   const empColor = getEmployeeColor(task.assignedTo?.id)
                   return (
                     <div

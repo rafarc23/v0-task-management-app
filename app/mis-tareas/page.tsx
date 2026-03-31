@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
@@ -10,14 +10,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getTasks, updateTask } from "@/lib/task-storage"
-import { getEmployees } from "@/lib/employee-storage"
+import { useTasks, useEmployees, useUpdateTask } from "@/lib/hooks/use-data"
 import type { Task, Employee } from "@/lib/types"
 import {
   Clock, CheckCircle2, AlertCircle, ArrowRight, Calendar as CalendarIcon,
   User, MessageSquare, Image as ImageIcon, Mic, Wrench,
   PlayCircle, FileText, Eye, Download, X, ChevronDown, ChevronLeft, ChevronRight,
-  List, LayoutGrid, GripVertical, ArrowUp, ArrowDown, Flame
+  List, LayoutGrid, GripVertical, ArrowUp, ArrowDown, Flame, Loader2
 } from "lucide-react"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from "date-fns"
 import { es } from "date-fns/locale"
@@ -26,7 +25,6 @@ const PRIORITY_ORDER: Record<string, number> = { urgente: 0, alta: 1, media: 2, 
 
 function sortByPriority(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
-    // First by custom order if set, then by priority
     if (a.order !== undefined && b.order !== undefined) return a.order - b.order
     if (a.order !== undefined) return -1
     if (b.order !== undefined) return 1
@@ -45,40 +43,40 @@ export default function MisTareasPage() {
 function MisTareasContent() {
   const router = useRouter()
   const { user, setEmployeeProfile } = useAuth()
-  const [myTasks, setMyTasks] = useState<Task[]>([])
+  const { tasks: allTasks, isLoading: tasksLoading, mutate: mutateTasks } = useTasks()
+  const { employees, isLoading: employeesLoading } = useEmployees()
+  const { updateTask } = useUpdateTask()
+  
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list")
   const [viewTab, setViewTab] = useState("pendiente")
   const [previewImage, setPreviewImage] = useState<string | null>(null)
-  const [employees, setEmployees] = useState<Employee[]>([])
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [showSelector, setShowSelector] = useState(false)
   const [calendarDate, setCalendarDate] = useState(new Date())
   const [dragId, setDragId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const emps = getEmployees().filter((e) => e.isActive)
-    setEmployees(emps)
-    if (user?.employeeId) {
-      const found = emps.find((e) => e.id === user.employeeId)
-      if (found) setSelectedEmployee(found)
-      else setShowSelector(true)
-    } else {
+  // Check if employee is already selected
+  const activeEmployees = useMemo(() => employees.filter((e) => e.isActive), [employees])
+  
+  // Auto-select employee if user has an employeeId
+  useMemo(() => {
+    if (user?.employeeId && !selectedEmployee && activeEmployees.length > 0) {
+      const found = activeEmployees.find((e) => e.id === user.employeeId)
+      if (found) {
+        setSelectedEmployee(found)
+        setShowSelector(false)
+      } else {
+        setShowSelector(true)
+      }
+    } else if (!user?.employeeId && activeEmployees.length > 0 && !selectedEmployee) {
       setShowSelector(true)
     }
-  }, [user])
+  }, [user?.employeeId, selectedEmployee, activeEmployees])
 
-  const loadTasks = useCallback(() => {
-    if (!selectedEmployee) return
-    const all = getTasks()
-    const mine = all.filter((t) => t.assignedTo?.name === selectedEmployee.name)
-    setMyTasks(mine)
-  }, [selectedEmployee])
-
-  useEffect(() => {
-    loadTasks()
-    const interval = setInterval(loadTasks, 3000)
-    return () => clearInterval(interval)
-  }, [loadTasks])
+  const myTasks = useMemo(() => {
+    if (!selectedEmployee) return []
+    return allTasks.filter((t) => t.assignedTo?.name === selectedEmployee.name)
+  }, [allTasks, selectedEmployee])
 
   const handleSelectEmployee = (emp: Employee) => {
     setSelectedEmployee(emp)
@@ -92,12 +90,12 @@ function MisTareasContent() {
   const totalTasks = myTasks.length
   const donePercent = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 0
 
-  const handleQuickStatus = (taskId: string, newStatus: "en_proceso" | "completada") => {
-    updateTask(taskId, { status: newStatus })
-    loadTasks()
-  }
+  const handleQuickStatus = useCallback(async (taskId: string, newStatus: "en_proceso" | "completada") => {
+    await updateTask(taskId, { status: newStatus })
+    mutateTasks()
+  }, [updateTask, mutateTasks])
 
-  const moveTask = (taskId: string, direction: "up" | "down", taskList: Task[]) => {
+  const moveTask = useCallback(async (taskId: string, direction: "up" | "down", taskList: Task[]) => {
     const idx = taskList.findIndex((t) => t.id === taskId)
     if (idx < 0) return
     if (direction === "up" && idx === 0) return
@@ -110,11 +108,11 @@ function MisTareasContent() {
     newList[swapIdx] = temp
 
     // Save new order
-    newList.forEach((t, i) => {
-      updateTask(t.id, { order: i } as Partial<Task>)
-    })
-    loadTasks()
-  }
+    for (let i = 0; i < newList.length; i++) {
+      await updateTask(newList[i].id, { order: i })
+    }
+    mutateTasks()
+  }, [updateTask, mutateTasks])
 
   // Drag and drop handlers
   const handleDragStart = (taskId: string) => {
@@ -126,7 +124,7 @@ function MisTareasContent() {
     e.dataTransfer.dropEffect = "move"
   }
 
-  const handleDrop = (targetId: string, taskList: Task[]) => {
+  const handleDrop = useCallback(async (targetId: string, taskList: Task[]) => {
     if (!dragId || dragId === targetId) { setDragId(null); return }
     const fromIdx = taskList.findIndex((t) => t.id === dragId)
     const toIdx = taskList.findIndex((t) => t.id === targetId)
@@ -136,18 +134,30 @@ function MisTareasContent() {
     const [moved] = newList.splice(fromIdx, 1)
     newList.splice(toIdx, 0, moved)
 
-    newList.forEach((t, i) => {
-      updateTask(t.id, { order: i } as Partial<Task>)
-    })
+    for (let i = 0; i < newList.length; i++) {
+      await updateTask(newList[i].id, { order: i })
+    }
     setDragId(null)
-    loadTasks()
-  }
+    mutateTasks()
+  }, [dragId, updateTask, mutateTasks])
 
   const priorityConfig: Record<string, { label: string; color: string; border: string; bg: string; glow: string }> = {
     urgente: { label: "URGENTE", color: "bg-red-600 text-white", border: "border-l-red-600", bg: "bg-red-50", glow: "shadow-red-200" },
     alta: { label: "ALTA", color: "bg-orange-500 text-white", border: "border-l-orange-500", bg: "bg-orange-50", glow: "shadow-orange-200" },
     media: { label: "MEDIA", color: "bg-blue-500 text-white", border: "border-l-blue-500", bg: "bg-blue-50", glow: "shadow-blue-100" },
     baja: { label: "BAJA", color: "bg-slate-400 text-white", border: "border-l-slate-400", bg: "bg-slate-50", glow: "shadow-slate-100" },
+  }
+
+  // Loading state
+  if (tasksLoading || employeesLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+        </div>
+      </div>
+    )
   }
 
   // Employee selector
@@ -165,7 +175,7 @@ function MisTareasContent() {
               <p className="text-slate-500">Elige tu nombre para ver tus tareas asignadas</p>
             </div>
             <div className="grid gap-3">
-              {employees.map((emp) => (
+              {activeEmployees.map((emp) => (
                 <button
                   key={emp.id}
                   onClick={() => handleSelectEmployee(emp)}
@@ -189,7 +199,7 @@ function MisTareasContent() {
                   <ArrowRight className="h-5 w-5 text-slate-300 group-hover:text-emerald-500 transition-colors" />
                 </button>
               ))}
-              {employees.length === 0 && (
+              {activeEmployees.length === 0 && (
                 <Card className="border-2 border-dashed border-slate-300">
                   <CardContent className="p-10 text-center">
                     <User className="h-10 w-10 text-slate-300 mx-auto mb-3" />
@@ -328,11 +338,9 @@ function MisTareasContent() {
         className={`transition-all duration-200 ${isDragging ? "opacity-40 scale-95" : ""}`}
       >
         <Card className={`border-l-[6px] ${pc.border} border-2 ${
-          isUrgent ? "border-red-300 bg-gradient-to-r from-red-50 to-orange-50 shadow-lg " + pc.glow + " animate-pulse-subtle" :
-          "border-slate-200 bg-white"
+          isUrgent ? "border-red-300 bg-gradient-to-r from-red-50 to-orange-50 shadow-lg " + pc.glow : "border-slate-200 bg-white"
         } hover:shadow-xl transition-all group`}>
           <CardContent className="p-0">
-            {/* Priority number badge */}
             <div className="flex">
               {/* Drag handle + position number */}
               <div className="flex flex-col items-center justify-center px-3 py-4 border-r-2 border-slate-100 bg-slate-50/70 gap-1 cursor-grab active:cursor-grabbing select-none">
@@ -383,7 +391,7 @@ function MisTareasContent() {
                       {format(new Date(task.dueDate), "dd MMM yyyy", { locale: es })}
                     </span>
                   )}
-                  {task.comments.length > 0 && (
+                  {task.comments && task.comments.length > 0 && (
                     <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {task.comments.length} comentarios</span>
                   )}
                 </div>
@@ -395,27 +403,26 @@ function MisTareasContent() {
                       <div className="flex gap-2">
                         {imageAttachments.slice(0, 4).map((att) => (
                           <div key={att.id} className="relative group/img cursor-pointer" onClick={() => setPreviewImage(att.url)}>
-                            <img src={att.url} alt={att.filename} crossOrigin="anonymous" className="h-20 w-20 object-cover rounded-xl border-2 border-slate-200 group-hover/img:border-blue-400 transition-all shadow-sm" />
-                            <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/30 rounded-xl transition-all flex items-center justify-center">
-                              <Eye className="h-4 w-4 text-white opacity-0 group-hover/img:opacity-100 transition-opacity" />
+                            <img src={att.url} alt={att.filename} crossOrigin="anonymous"
+                              className="h-16 w-16 object-cover rounded-lg border-2 border-slate-200 group-hover/img:border-blue-400 transition-colors" />
+                            <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 rounded-lg transition-all flex items-center justify-center opacity-0 group-hover/img:opacity-100">
+                              <Eye className="h-5 w-5 text-white" />
                             </div>
                           </div>
                         ))}
                         {imageAttachments.length > 4 && (
-                          <div className="h-20 w-20 rounded-xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center">
-                            <span className="text-xs font-bold text-slate-500">+{imageAttachments.length - 4}</span>
+                          <div className="h-16 w-16 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 text-sm font-medium border-2 border-slate-200">
+                            +{imageAttachments.length - 4}
                           </div>
                         )}
                       </div>
                     )}
                     {audioAttachments.length > 0 && (
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="flex flex-col gap-2">
                         {audioAttachments.slice(0, 2).map((att) => (
-                          <div key={att.id} className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-xl p-2 mb-1">
-                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center flex-shrink-0">
-                              <Mic className="h-3.5 w-3.5 text-white" />
-                            </div>
-                            <audio controls src={att.url} className="flex-1 h-7" />
+                          <div key={att.id} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                            <Mic className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                            <audio src={att.url} controls className="h-8 max-w-[200px]" />
                           </div>
                         ))}
                       </div>
@@ -423,20 +430,23 @@ function MisTareasContent() {
                   </div>
                 )}
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                {/* Action buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
                   {task.status === "pendiente" && (
-                    <Button size="sm" onClick={() => handleQuickStatus(task.id, "en_proceso")} className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white text-xs">
-                      <PlayCircle className="h-3 w-3 mr-1" /> Comenzar
+                    <Button size="sm" variant="outline" onClick={() => handleQuickStatus(task.id, "en_proceso")}
+                      className="border-blue-300 text-blue-700 hover:bg-blue-50">
+                      <PlayCircle className="h-4 w-4 mr-1" /> Iniciar
                     </Button>
                   )}
                   {task.status === "en_proceso" && (
-                    <Button size="sm" onClick={() => handleQuickStatus(task.id, "completada")} className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs">
-                      <CheckCircle2 className="h-3 w-3 mr-1" /> Completar
+                    <Button size="sm" variant="outline" onClick={() => handleQuickStatus(task.id, "completada")}
+                      className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
+                      <CheckCircle2 className="h-4 w-4 mr-1" /> Completar
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" onClick={() => router.push(`/tarea/${task.id}`)} className="text-xs">
-                    Ver Detalle <ArrowRight className="h-3 w-3 ml-1" />
+                  <Button size="sm" variant="ghost" onClick={() => router.push(`/tarea/${task.id}`)}
+                    className="text-slate-600 hover:text-slate-800">
+                    <FileText className="h-4 w-4 mr-1" /> Ver Detalles
                   </Button>
                 </div>
               </div>
@@ -451,27 +461,31 @@ function MisTareasContent() {
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
       <DashboardHeader />
 
+      {/* Image preview modal */}
       {previewImage && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-          <div className="relative max-w-4xl max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-            <img src={previewImage} alt="Preview" crossOrigin="anonymous" className="max-h-[85vh] rounded-xl shadow-2xl" />
-            <div className="flex gap-2 justify-center mt-3">
-              <a href={previewImage} download className="px-4 py-2 rounded-lg bg-white text-slate-800 text-sm font-medium hover:bg-slate-100 flex items-center gap-2">
-                <Download className="h-4 w-4" /> Descargar
-              </a>
-              <button onClick={() => setPreviewImage(null)} className="px-4 py-2 rounded-lg bg-white/20 text-white text-sm font-medium hover:bg-white/30 flex items-center gap-2">
-                <X className="h-4 w-4" /> Cerrar
-              </button>
-            </div>
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-4xl max-h-[90vh]">
+            <Button size="icon" variant="ghost" className="absolute -top-12 right-0 text-white hover:bg-white/20" onClick={() => setPreviewImage(null)}>
+              <X className="h-6 w-6" />
+            </Button>
+            <img src={previewImage} alt="Preview" crossOrigin="anonymous" className="max-w-full max-h-[85vh] rounded-lg object-contain" />
+            <a href={previewImage} download className="absolute bottom-4 right-4">
+              <Button size="sm" variant="secondary" className="bg-white/90 hover:bg-white">
+                <Download className="h-4 w-4 mr-2" /> Descargar
+              </Button>
+            </a>
           </div>
         </div>
       )}
 
       <main className="container mx-auto p-6 space-y-6">
-        {/* Profile header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-lg overflow-hidden" style={{ backgroundColor: selectedEmployee.color }}>
+            <div
+              className="h-16 w-16 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-lg overflow-hidden"
+              style={{ backgroundColor: selectedEmployee.color }}
+            >
               {selectedEmployee.avatar ? (
                 <img src={selectedEmployee.avatar} alt={selectedEmployee.name} crossOrigin="anonymous" className="h-full w-full object-cover" />
               ) : (
@@ -479,147 +493,124 @@ function MisTareasContent() {
               )}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">{selectedEmployee.name}</h1>
-              <p className="text-slate-500 text-sm">{selectedEmployee.position} - {selectedEmployee.department}</p>
+              <h1 className="text-3xl font-bold text-slate-800">Mis Tareas</h1>
+              <p className="text-slate-500">
+                {selectedEmployee.name} - {selectedEmployee.position}
+                <button onClick={() => setShowSelector(true)} className="ml-2 text-teal-600 hover:underline text-sm">(cambiar)</button>
+              </p>
             </div>
           </div>
-          <Button variant="outline" onClick={() => setShowSelector(true)} className="text-sm gap-2">
-            <ChevronDown className="h-4 w-4" /> Cambiar Operario
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-100 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode("list")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  viewMode === "list" ? "bg-white text-teal-700 shadow-sm" : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                <List className="h-4 w-4" /> Lista
+              </button>
+              <button
+                onClick={() => setViewMode("calendar")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  viewMode === "calendar" ? "bg-white text-teal-700 shadow-sm" : "text-slate-600 hover:text-slate-800"
+                }`}
+              >
+                <CalendarIcon className="h-4 w-4" /> Calendario
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="border-2 border-slate-200 bg-white">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center flex-shrink-0">
-                <FileText className="h-6 w-6 text-white" />
-              </div>
-              <div><p className="text-2xl font-bold text-slate-800">{totalTasks}</p><p className="text-xs text-slate-500">Total</p></div>
+          <Card className="border-2 border-amber-300 bg-gradient-to-br from-amber-50 to-amber-100">
+            <CardContent className="p-4 text-center">
+              <Clock className="h-6 w-6 text-amber-600 mx-auto mb-1" />
+              <p className="text-3xl font-bold text-amber-800">{pendingTasks.length}</p>
+              <p className="text-sm text-amber-600 font-medium">Pendientes</p>
             </CardContent>
           </Card>
-          <Card className="border-2 border-amber-200 bg-amber-50">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
-                <Clock className="h-6 w-6 text-white" />
-              </div>
-              <div><p className="text-2xl font-bold text-amber-800">{pendingTasks.length}</p><p className="text-xs text-amber-600">Pendientes</p></div>
+          <Card className="border-2 border-blue-300 bg-gradient-to-br from-blue-50 to-blue-100">
+            <CardContent className="p-4 text-center">
+              <AlertCircle className="h-6 w-6 text-blue-600 mx-auto mb-1" />
+              <p className="text-3xl font-bold text-blue-800">{inProgressTasks.length}</p>
+              <p className="text-sm text-blue-600 font-medium">En Proceso</p>
             </CardContent>
           </Card>
-          <Card className="border-2 border-blue-200 bg-blue-50">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
-                <AlertCircle className="h-6 w-6 text-white" />
-              </div>
-              <div><p className="text-2xl font-bold text-blue-800">{inProgressTasks.length}</p><p className="text-xs text-blue-600">En Proceso</p></div>
+          <Card className="border-2 border-emerald-300 bg-gradient-to-br from-emerald-50 to-emerald-100">
+            <CardContent className="p-4 text-center">
+              <CheckCircle2 className="h-6 w-6 text-emerald-600 mx-auto mb-1" />
+              <p className="text-3xl font-bold text-emerald-800">{completedTasks.length}</p>
+              <p className="text-sm text-emerald-600 font-medium">Completadas</p>
             </CardContent>
           </Card>
-          <Card className="border-2 border-emerald-200 bg-emerald-50">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="h-6 w-6 text-white" />
-              </div>
-              <div><p className="text-2xl font-bold text-emerald-800">{completedTasks.length}</p><p className="text-xs text-emerald-600">Completadas</p></div>
+          <Card className="border-2 border-teal-300 bg-gradient-to-br from-teal-50 to-teal-100">
+            <CardContent className="p-4">
+              <p className="text-sm font-semibold text-teal-700 text-center mb-2">Progreso</p>
+              <Progress value={donePercent} className="h-3 mb-1" />
+              <p className="text-center text-2xl font-bold text-teal-800">{donePercent}%</p>
             </CardContent>
           </Card>
-        </div>
-
-        {/* Progress */}
-        <Card className="border-2 border-slate-200 bg-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-slate-700">Mi rendimiento</p>
-              <p className="text-sm font-bold text-emerald-600">{donePercent}% completado</p>
-            </div>
-            <Progress value={donePercent} className="h-3" />
-          </CardContent>
-        </Card>
-
-        {/* View toggle */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant={viewMode === "list" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("list")}
-              className={viewMode === "list" ? "bg-teal-600 hover:bg-teal-700 text-white" : ""}
-            >
-              <List className="h-4 w-4 mr-2" /> Lista de Tareas
-            </Button>
-            <Button
-              variant={viewMode === "calendar" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setViewMode("calendar")}
-              className={viewMode === "calendar" ? "bg-teal-600 hover:bg-teal-700 text-white" : ""}
-            >
-              <CalendarIcon className="h-4 w-4 mr-2" /> Calendario
-            </Button>
-          </div>
-          {viewMode === "list" && (
-            <p className="text-xs text-slate-500 flex items-center gap-1">
-              <GripVertical className="h-3.5 w-3.5" /> Arrastra o usa las flechas para reordenar tus tareas
-            </p>
-          )}
         </div>
 
         {viewMode === "calendar" ? (
           <EmployeeCalendar />
         ) : (
-          <Tabs value={viewTab} onValueChange={setViewTab}>
+          <Tabs value={viewTab} onValueChange={setViewTab} className="space-y-4">
             <TabsList className="bg-white border-2 border-slate-200 p-1 h-auto">
-              <TabsTrigger value="pendiente" className="data-[state=active]:bg-amber-500 data-[state=active]:text-white gap-2">
-                <Clock className="h-4 w-4" /> Pendientes
-                <Badge className="bg-amber-100 text-amber-800 ml-1">{pendingTasks.length}</Badge>
+              <TabsTrigger value="pendiente" className="data-[state=active]:bg-amber-500 data-[state=active]:text-white px-6 py-2">
+                Pendientes ({pendingTasks.length})
               </TabsTrigger>
-              <TabsTrigger value="en_proceso" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white gap-2">
-                <AlertCircle className="h-4 w-4" /> En Proceso
-                <Badge className="bg-blue-100 text-blue-800 ml-1">{inProgressTasks.length}</Badge>
+              <TabsTrigger value="en_proceso" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white px-6 py-2">
+                En Proceso ({inProgressTasks.length})
               </TabsTrigger>
-              <TabsTrigger value="completada" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-white gap-2">
-                <CheckCircle2 className="h-4 w-4" /> Completadas
-                <Badge className="bg-emerald-100 text-emerald-800 ml-1">{completedTasks.length}</Badge>
+              <TabsTrigger value="completada" className="data-[state=active]:bg-emerald-500 data-[state=active]:text-white px-6 py-2">
+                Completadas ({completedTasks.length})
               </TabsTrigger>
             </TabsList>
 
-            {(["pendiente", "en_proceso", "completada"] as const).map((status) => {
-              const statusTasks = status === "pendiente" ? pendingTasks : status === "en_proceso" ? inProgressTasks : completedTasks
-              const emptyConfig = {
-                pendiente: { icon: Clock, text: "No tienes tareas pendientes", bg: "bg-amber-50", border: "border-amber-200", textColor: "text-amber-400" },
-                en_proceso: { icon: AlertCircle, text: "No tienes tareas en proceso", bg: "bg-blue-50", border: "border-blue-200", textColor: "text-blue-400" },
-                completada: { icon: CheckCircle2, text: "Aun no has completado tareas", bg: "bg-emerald-50", border: "border-emerald-200", textColor: "text-emerald-400" },
-              }
-              const ec = emptyConfig[status]
-              return (
-                <TabsContent key={status} value={status} className="mt-4 space-y-3">
-                  {statusTasks.length === 0 ? (
-                    <Card className={`border-2 border-dashed ${ec.border} ${ec.bg}`}>
-                      <CardContent className="p-10 text-center">
-                        <ec.icon className={`h-10 w-10 ${ec.textColor} mx-auto mb-3`} />
-                        <p className={`text-sm ${ec.textColor} font-medium`}>{ec.text}</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <>
-                      {/* Instructional banner for active tasks */}
-                      {status !== "completada" && (
-                        <div className="flex items-center gap-3 bg-gradient-to-r from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4">
-                          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center flex-shrink-0">
-                            <Flame className="h-5 w-5 text-white" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-indigo-800">Ordenadas por urgencia</p>
-                            <p className="text-xs text-indigo-600">Realiza las tareas de arriba hacia abajo. Puedes arrastrar o usar las flechas para reorganizar.</p>
-                          </div>
-                        </div>
-                      )}
-                      {statusTasks.map((t, i) => (
-                        <TaskCard key={t.id} task={t} index={i} taskList={statusTasks} />
-                      ))}
-                    </>
-                  )}
-                </TabsContent>
-              )
-            })}
+            <TabsContent value="pendiente" className="space-y-3">
+              {pendingTasks.length === 0 ? (
+                <Card className="border-2 border-dashed border-amber-300 bg-amber-50/50">
+                  <CardContent className="p-12 text-center">
+                    <Clock className="h-12 w-12 text-amber-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-amber-700">Sin tareas pendientes</h3>
+                    <p className="text-sm text-amber-600 mt-1">Excelente, no tienes tareas esperando</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                pendingTasks.map((task, idx) => <TaskCard key={task.id} task={task} index={idx} taskList={pendingTasks} />)
+              )}
+            </TabsContent>
+
+            <TabsContent value="en_proceso" className="space-y-3">
+              {inProgressTasks.length === 0 ? (
+                <Card className="border-2 border-dashed border-blue-300 bg-blue-50/50">
+                  <CardContent className="p-12 text-center">
+                    <AlertCircle className="h-12 w-12 text-blue-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-blue-700">Nada en proceso</h3>
+                    <p className="text-sm text-blue-600 mt-1">Inicia una tarea pendiente para verla aqui</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                inProgressTasks.map((task, idx) => <TaskCard key={task.id} task={task} index={idx} taskList={inProgressTasks} />)
+              )}
+            </TabsContent>
+
+            <TabsContent value="completada" className="space-y-3">
+              {completedTasks.length === 0 ? (
+                <Card className="border-2 border-dashed border-emerald-300 bg-emerald-50/50">
+                  <CardContent className="p-12 text-center">
+                    <CheckCircle2 className="h-12 w-12 text-emerald-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-emerald-700">Sin tareas completadas</h3>
+                    <p className="text-sm text-emerald-600 mt-1">Las tareas terminadas apareceran aqui</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                completedTasks.map((task, idx) => <TaskCard key={task.id} task={task} index={idx} taskList={completedTasks} />)
+              )}
+            </TabsContent>
           </Tabs>
         )}
       </main>

@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
@@ -21,10 +20,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { getProjects, addProject, deleteProject } from "@/lib/project-storage"
-import { getEmployees } from "@/lib/employee-storage"
+import { useProjects, useEmployees, useCreateProject, useDeleteProject } from "@/lib/hooks/use-data"
 import type { Project, TaskPriority } from "@/lib/types"
-import { FolderKanban, Plus, TrendingUp, Clock, CheckCircle2, AlertCircle, Calendar, Users, Trash2 } from "lucide-react"
+import { FolderKanban, Plus, TrendingUp, Clock, CheckCircle2, AlertCircle, Calendar, Users, Trash2, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { useRouter } from "next/navigation"
@@ -39,8 +37,13 @@ export default function ProjectsPage() {
 
 function ProjectsContent() {
   const router = useRouter()
-  const [projects, setProjects] = useState<Project[]>(getProjects())
+  const { projects, isLoading: projectsLoading, mutate: mutateProjects } = useProjects()
+  const { employees, isLoading: employeesLoading } = useEmployees()
+  const { createProject } = useCreateProject()
+  const { deleteProject } = useDeleteProject()
+  
   const [isAddingProject, setIsAddingProject] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -53,36 +56,33 @@ function ProjectsContent() {
     teamIds: [] as string[],
   })
 
-  const employees = getEmployees()
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
-    const responsible = employees.find((e) => e.id === formData.responsibleId)
+    const responsible = employees.find((emp) => emp.id === formData.responsibleId)
     if (!responsible) return
 
-    const team = employees.filter((e) => formData.teamIds.includes(e.id)).map((e) => ({ id: e.id, name: e.name }))
+    setIsSubmitting(true)
+    try {
+      await createProject({
+        name: formData.name,
+        description: formData.description,
+        status: formData.status,
+        priority: formData.priority,
+        startDate: new Date(formData.startDate).toISOString(),
+        endDate: formData.endDate ? new Date(formData.endDate).toISOString() : null,
+        budget: formData.budget ? parseFloat(formData.budget) : null,
+        responsibleId: responsible.id,
+      })
 
-    addProject({
-      name: formData.name,
-      description: formData.description,
-      status: formData.status,
-      priority: formData.priority,
-      startDate: new Date(formData.startDate),
-      endDate: formData.endDate ? new Date(formData.endDate) : undefined,
-      progress: 0,
-      budget: formData.budget ? Number.parseFloat(formData.budget) : undefined,
-      spentBudget: 0,
-      responsible: { id: responsible.id, name: responsible.name },
-      team,
-      tasks: [],
-      documents: [],
-      milestones: [],
-    })
-
-    setProjects(getProjects())
-    setIsAddingProject(false)
-    resetForm()
-  }
+      mutateProjects()
+      setIsAddingProject(false)
+      resetForm()
+    } catch (error) {
+      console.error("Error creating project:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [formData, employees, createProject, mutateProjects])
 
   const resetForm = () => {
     setFormData({
@@ -98,12 +98,16 @@ function ProjectsContent() {
     })
   }
 
-  const handleDeleteProject = (id: string) => {
-    if (confirm("¿Estás seguro de eliminar este proyecto?")) {
-      deleteProject(id)
-      setProjects(getProjects())
+  const handleDeleteProject = useCallback(async (id: string) => {
+    if (confirm("¿Estas seguro de eliminar este proyecto?")) {
+      try {
+        await deleteProject(id)
+        mutateProjects()
+      } catch (error) {
+        console.error("Error deleting project:", error)
+      }
     }
-  }
+  }, [deleteProject, mutateProjects])
 
   const getStatusColor = (status: Project["status"]) => {
     switch (status) {
@@ -140,7 +144,7 @@ function ProjectsContent() {
   const getStatusLabel = (status: Project["status"]) => {
     switch (status) {
       case "planning":
-        return "Planificación"
+        return "Planificacion"
       case "in_progress":
         return "En Progreso"
       case "on_hold":
@@ -176,6 +180,17 @@ function ProjectsContent() {
     completed: projects.filter((p) => p.status === "completed").length,
   }
 
+  if (projectsLoading || employeesLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-cyan-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-cyan-50">
       <DashboardHeader />
@@ -183,7 +198,7 @@ function ProjectsContent() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-              Gestión de Proyectos
+              Gestion de Proyectos
             </h1>
             <p className="text-muted-foreground mt-2">Controla y da seguimiento a grandes proyectos</p>
           </div>
@@ -200,7 +215,7 @@ function ProjectsContent() {
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Crear Nuevo Proyecto</DialogTitle>
-                <DialogDescription>Completa la información del proyecto</DialogDescription>
+                <DialogDescription>Completa la informacion del proyecto</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
@@ -210,16 +225,18 @@ function ProjectsContent() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="description">Descripción</Label>
+                  <Label htmlFor="description">Descripcion</Label>
                   <Textarea
                     id="description"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -228,12 +245,13 @@ function ProjectsContent() {
                     <Select
                       value={formData.status}
                       onValueChange={(value: Project["status"]) => setFormData({ ...formData, status: value })}
+                      disabled={isSubmitting}
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="planning">Planificación</SelectItem>
+                        <SelectItem value="planning">Planificacion</SelectItem>
                         <SelectItem value="in_progress">En Progreso</SelectItem>
                         <SelectItem value="on_hold">En Pausa</SelectItem>
                         <SelectItem value="completed">Completado</SelectItem>
@@ -246,6 +264,7 @@ function ProjectsContent() {
                     <Select
                       value={formData.priority}
                       onValueChange={(value: TaskPriority) => setFormData({ ...formData, priority: value })}
+                      disabled={isSubmitting}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -268,6 +287,7 @@ function ProjectsContent() {
                       value={formData.startDate}
                       onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
                   <div className="space-y-2">
@@ -277,6 +297,7 @@ function ProjectsContent() {
                       type="date"
                       value={formData.endDate}
                       onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
@@ -289,6 +310,7 @@ function ProjectsContent() {
                     value={formData.budget}
                     onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
                     placeholder="0.00"
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="space-y-2">
@@ -296,6 +318,7 @@ function ProjectsContent() {
                   <Select
                     value={formData.responsibleId}
                     onValueChange={(value) => setFormData({ ...formData, responsibleId: value })}
+                    disabled={isSubmitting}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecciona un responsable" />
@@ -311,8 +334,15 @@ function ProjectsContent() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button type="submit" className="w-full">
-                  Crear Proyecto
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creando...
+                    </>
+                  ) : (
+                    "Crear Proyecto"
+                  )}
                 </Button>
               </form>
             </DialogContent>
@@ -330,7 +360,7 @@ function ProjectsContent() {
           </Card>
           <Card className="border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 to-yellow-100">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-yellow-800">Planificación</CardTitle>
+              <CardTitle className="text-sm font-medium text-yellow-800">Planificacion</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-yellow-900">{stats.planning}</div>
@@ -355,70 +385,75 @@ function ProjectsContent() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {projects.map((project) => (
-            <Card
-              key={project.id}
-              className="hover:shadow-xl transition-all cursor-pointer border-2"
-              onClick={() => router.push(`/proyecto/${project.id}`)}
-            >
-              <CardHeader>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <FolderKanban className="h-5 w-5 text-purple-600" />
-                    <CardTitle className="text-lg">{project.name}</CardTitle>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteProject(project.id)
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <CardDescription className="line-clamp-2">{project.description}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Badge className={getStatusColor(project.status)}>
-                    {getStatusIcon(project.status)}
-                    <span className="ml-1">{getStatusLabel(project.status)}</span>
-                  </Badge>
-                  <div className={`h-2 w-2 rounded-full ${getPriorityColor(project.priority)}`} />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">Progreso</span>
-                    <span className="font-bold text-purple-600">{project.progress}%</span>
-                  </div>
-                  <Progress value={project.progress} className="h-2" />
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>{format(project.startDate, "PP", { locale: es })}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Users className="h-4 w-4" />
-                    <span>{project.responsible.name}</span>
-                  </div>
-                  {project.budget && (
-                    <div className="text-muted-foreground">Presupuesto: ${project.budget.toLocaleString()}</div>
-                  )}
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  <Badge variant="outline">{project.documents.length} documentos</Badge>
-                  <Badge variant="outline">{project.milestones.length} hitos</Badge>
-                </div>
+          {projects.length === 0 ? (
+            <Card className="col-span-full border-2 border-dashed border-purple-300 bg-purple-50/50">
+              <CardContent className="p-12 text-center">
+                <FolderKanban className="h-12 w-12 text-purple-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-purple-700">Sin proyectos</h3>
+                <p className="text-sm text-purple-600 mt-1">Crea tu primer proyecto para comenzar</p>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            projects.map((project) => (
+              <Card
+                key={project.id}
+                className="hover:shadow-xl transition-all cursor-pointer border-2"
+                onClick={() => router.push(`/proyecto/${project.id}`)}
+              >
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <FolderKanban className="h-5 w-5 text-purple-600" />
+                      <CardTitle className="text-lg">{project.name}</CardTitle>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteProject(project.id)
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <CardDescription className="line-clamp-2">{project.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Badge className={getStatusColor(project.status)}>
+                      {getStatusIcon(project.status)}
+                      <span className="ml-1">{getStatusLabel(project.status)}</span>
+                    </Badge>
+                    <div className={`h-2 w-2 rounded-full ${getPriorityColor(project.priority)}`} />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-sm mb-2">
+                      <span className="text-muted-foreground">Progreso</span>
+                      <span className="font-bold text-purple-600">{project.progress || 0}%</span>
+                    </div>
+                    <Progress value={project.progress || 0} className="h-2" />
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      <span>{format(new Date(project.startDate), "PP", { locale: es })}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Users className="h-4 w-4" />
+                      <span>{project.responsible?.name || "Sin asignar"}</span>
+                    </div>
+                    {project.budget && (
+                      <div className="text-muted-foreground">Presupuesto: ${project.budget.toLocaleString()}</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </div>
       </main>
     </div>

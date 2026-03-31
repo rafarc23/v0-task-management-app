@@ -1,14 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useMemo } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { getTasks } from "@/lib/task-storage"
-import { getEmployees } from "@/lib/employee-storage"
-import type { Task, Employee } from "@/lib/types"
+import { useTasks, useEmployees } from "@/lib/hooks/use-data"
+import type { Task } from "@/lib/types"
 import {
   BarChart3,
   TrendingUp,
@@ -24,6 +23,7 @@ import {
   Users,
   Layers,
   Zap,
+  Loader2,
 } from "lucide-react"
 import {
   startOfWeek,
@@ -59,15 +59,10 @@ export default function InformesPage() {
 }
 
 function InformesContent() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [employees, setEmployees] = useState<Employee[]>([])
+  const { tasks, isLoading: tasksLoading } = useTasks()
+  const { employees, isLoading: employeesLoading } = useEmployees()
   const [periodMode, setPeriodMode] = useState<PeriodMode>("week")
   const [offset, setOffset] = useState(0)
-
-  useEffect(() => {
-    setTasks(getTasks())
-    setEmployees(getEmployees())
-  }, [])
 
   // Reset offset when switching modes
   const handleModeChange = (mode: PeriodMode) => {
@@ -75,7 +70,7 @@ function InformesContent() {
     setOffset(0)
   }
 
-  const getDateRange = () => {
+  const getDateRange = useMemo(() => {
     const now = new Date()
     let start: Date
     let end: Date
@@ -108,19 +103,19 @@ function InformesContent() {
     }
 
     return { start, end }
-  }
+  }, [periodMode, offset])
 
-  const getPreviousRange = () => {
-    const { start, end } = getDateRange()
+  const { start, end } = getDateRange
+
+  const getPreviousRange = useMemo(() => {
     const duration = differenceInDays(end, start) + 1
     return {
       start: subDays(start, duration),
       end: subDays(end, duration),
     }
-  }
+  }, [start, end])
 
-  const { start, end } = getDateRange()
-  const prev = getPreviousRange()
+  const prev = getPreviousRange
 
   const filterByRange = (t: Task, s: Date, e: Date) => {
     if (t.status !== "completada") return false
@@ -129,23 +124,24 @@ function InformesContent() {
     return false
   }
 
-  const completedTasks = tasks.filter((t) => filterByRange(t, start, end))
-  const previousCompleted = tasks.filter((t) => filterByRange(t, prev.start, prev.end))
+  const completedTasks = useMemo(() => tasks.filter((t) => filterByRange(t, start, end)), [tasks, start, end])
+  const previousCompleted = useMemo(() => tasks.filter((t) => filterByRange(t, prev.start, prev.end)), [tasks, prev])
 
-  const allPeriodTasks = tasks.filter((t) => {
+  const allPeriodTasks = useMemo(() => tasks.filter((t) => {
     const created = new Date(t.createdAt)
     return isWithinInterval(created, { start, end })
-  })
+  }), [tasks, start, end])
 
-  const pctChange =
+  const pctChange = useMemo(() => 
     previousCompleted.length > 0
       ? ((completedTasks.length - previousCompleted.length) / previousCompleted.length) * 100
       : completedTasks.length > 0
         ? 100
         : 0
+  , [completedTasks.length, previousCompleted.length])
 
   // Stats by department
-  const byDepartment = completedTasks.reduce(
+  const byDepartment = useMemo(() => completedTasks.reduce(
     (acc, task) => {
       const dept = task.requesterDepartment || task.requestedBy?.department || "Sin departamento"
       if (!acc[dept]) acc[dept] = { total: 0, infraestructura: 0, ti: 0, urgente: 0, alta: 0, media: 0, baja: 0 }
@@ -156,38 +152,41 @@ function InformesContent() {
       return acc
     },
     {} as Record<string, Record<string, number>>,
-  )
+  ), [completedTasks])
 
   // Stats by employee
-  const byEmployee: Record<string, { total: number; color: string }> = {}
-  completedTasks.forEach((t) => {
-    if (t.assignedTo) {
-      if (!byEmployee[t.assignedTo.name]) {
-        const emp = employees.find((e) => e.id === t.assignedTo?.id)
-        byEmployee[t.assignedTo.name] = { total: 0, color: emp?.color || "#6366f1" }
+  const byEmployee = useMemo(() => {
+    const result: Record<string, { total: number; color: string }> = {}
+    completedTasks.forEach((t) => {
+      if (t.assignedTo) {
+        if (!result[t.assignedTo.name]) {
+          const emp = employees.find((e) => e.id === t.assignedTo?.id)
+          result[t.assignedTo.name] = { total: 0, color: emp?.color || "#6366f1" }
+        }
+        result[t.assignedTo.name].total++
       }
-      byEmployee[t.assignedTo.name].total++
-    }
-  })
+    })
+    return result
+  }, [completedTasks, employees])
 
   // Stats by priority
-  const byPriority = {
+  const byPriority = useMemo(() => ({
     urgente: completedTasks.filter((t) => t.priority === "urgente").length,
     alta: completedTasks.filter((t) => t.priority === "alta").length,
     media: completedTasks.filter((t) => t.priority === "media").length,
     baja: completedTasks.filter((t) => t.priority === "baja").length,
-  }
+  }), [completedTasks])
 
   // Stats by category
-  const byCategory = {
+  const byCategory = useMemo(() => ({
     infraestructura: completedTasks.filter((t) => t.category === "infraestructura").length,
     ti: completedTasks.filter((t) => t.category === "ti").length,
     mantenimiento: completedTasks.filter((t) => t.category === "mantenimiento").length,
     otro: completedTasks.filter((t) => t.category === "otro").length,
-  }
+  }), [completedTasks])
 
   // Avg completion
-  const avgDays =
+  const avgDays = useMemo(() =>
     completedTasks.length > 0
       ? Math.round(
           completedTasks.reduce((sum, t) => {
@@ -197,6 +196,7 @@ function InformesContent() {
           }, 0) / completedTasks.length,
         )
       : 0
+  , [completedTasks])
 
   const getPeriodLabel = () => {
     switch (periodMode) {
@@ -219,6 +219,17 @@ function InformesContent() {
   ]
 
   const maxBarValue = Math.max(...Object.values(byEmployee).map((v) => v.total), 1)
+
+  if (tasksLoading || employeesLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -353,7 +364,7 @@ function InformesContent() {
                 <div className="space-y-4">
                   {Object.entries(byEmployee)
                     .sort((a, b) => b[1].total - a[1].total)
-                    .map(([name, data], idx) => (
+                    .map(([name, data]) => (
                       <div key={name}>
                         <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
@@ -468,8 +479,8 @@ function InformesContent() {
                 {[
                   { key: "infraestructura", label: "Infraestructura", count: byCategory.infraestructura, bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", value: "text-blue-600" },
                   { key: "ti", label: "TI", count: byCategory.ti, bg: "bg-cyan-50", border: "border-cyan-200", text: "text-cyan-700", value: "text-cyan-600" },
-                  { key: "mantenimiento", label: "Mantenimiento", count: byCategory.mantenimiento, bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", value: "text-emerald-600" },
-                  { key: "otro", label: "Otros", count: byCategory.otro, bg: "bg-slate-50", border: "border-slate-200", text: "text-slate-700", value: "text-slate-600" },
+                  { key: "mantenimiento", label: "Mantenimiento", count: byCategory.mantenimiento, bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700", value: "text-amber-600" },
+                  { key: "otro", label: "Otro", count: byCategory.otro, bg: "bg-slate-50", border: "border-slate-200", text: "text-slate-700", value: "text-slate-600" },
                 ].map((c) => (
                   <div key={c.key} className={`rounded-lg p-4 ${c.bg} border-2 ${c.border}`}>
                     <p className={`text-sm font-medium ${c.text}`}>{c.label}</p>
@@ -480,64 +491,6 @@ function InformesContent() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Completed tasks table */}
-        <Card className="border-2 border-slate-200 shadow-sm">
-          <CardHeader className="pb-3 bg-gradient-to-r from-slate-50 to-indigo-50 border-b">
-            <CardTitle className="text-lg text-slate-900">Tareas Completadas en el Periodo</CardTitle>
-            <CardDescription>{completedTasks.length} tareas resueltas</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {completedTasks.length === 0 ? (
-              <p className="text-center text-muted-foreground py-10">No hay tareas completadas en este periodo</p>
-            ) : (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {completedTasks.map((task) => {
-                  const emp = employees.find((e) => e.id === task.assignedTo?.id)
-                  return (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border-2 border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all"
-                    >
-                      <div
-                        className="w-1 h-10 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: emp?.color || "#94a3b8" }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm text-slate-800 truncate">{task.title}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-muted-foreground">
-                            {task.assignedTo?.name || "Sin asignar"}
-                          </span>
-                          <span className="text-xs text-muted-foreground">-</span>
-                          <span className="text-xs text-muted-foreground">
-                            {task.completedAt ? format(new Date(task.completedAt), "d MMM", { locale: es }) : ""}
-                          </span>
-                        </div>
-                      </div>
-                      <Badge
-                        className={
-                          task.priority === "urgente"
-                            ? "bg-red-100 text-red-700 border border-red-200"
-                            : task.priority === "alta"
-                              ? "bg-orange-100 text-orange-700 border border-orange-200"
-                              : task.priority === "media"
-                                ? "bg-amber-100 text-amber-700 border border-amber-200"
-                                : "bg-blue-100 text-blue-700 border border-blue-200"
-                        }
-                      >
-                        {task.priority}
-                      </Badge>
-                      <Badge className="bg-slate-100 text-slate-600 border border-slate-200 text-xs">
-                        {task.category}
-                      </Badge>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

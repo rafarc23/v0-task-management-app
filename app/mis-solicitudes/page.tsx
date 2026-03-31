@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
@@ -11,13 +11,13 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getTasks } from "@/lib/task-storage"
+import { useTasks } from "@/lib/hooks/use-data"
 import type { Task } from "@/lib/types"
 import {
   Plus, Clock, CheckCircle2, AlertCircle, XCircle,
   ArrowRight, Calendar, MessageSquare, Image as ImageIcon,
   Mic, ChevronDown, ChevronUp, FileText, Send, Search,
-  User, Building2, Filter
+  User, Building2, Filter, Loader2
 } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
@@ -35,43 +35,33 @@ export default function MisSolicitudesPage() {
 function MisSolicitudesContent() {
   const router = useRouter()
   const { user, isAdmin } = useAuth()
-  const [tasks, setTasks] = useState<Task[]>([])
+  const { tasks: allTasks, isLoading } = useTasks()
   const [statusFilter, setStatusFilter] = useState<string>("todas")
   const [nameFilter, setNameFilter] = useState("")
   const [deptFilter, setDeptFilter] = useState<string>("todos")
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const load = () => {
-      const all = getTasks()
-      // Admin can see all requests; requester/employee sees only theirs
-      if (isAdmin) {
-        setTasks(all)
-      } else {
-        setTasks(all.filter(
-          (t) => t.requestedBy.id === user?.id ||
-                 t.requestedBy.email === user?.email ||
-                 t.requesterName?.toLowerCase() === user?.name.toLowerCase()
-        ))
-      }
-    }
-    load()
-    const interval = setInterval(load, 3000)
-    return () => clearInterval(interval)
-  }, [user, isAdmin])
+  // Filter tasks based on user role
+  const tasks = isAdmin 
+    ? allTasks 
+    : allTasks.filter(
+        (t) => t.requestedBy?.id === user?.id ||
+               t.requestedBy?.email === user?.email ||
+               t.requesterName?.toLowerCase() === user?.name?.toLowerCase()
+      )
 
   // Get unique departments from tasks
-  const departments = Array.from(new Set(tasks.map((t) => t.requesterDepartment || t.requestedBy.department).filter(Boolean)))
+  const departments = Array.from(new Set(tasks.map((t) => t.requesterDepartment || t.requestedBy?.department).filter(Boolean)))
 
   // Apply filters
   const filtered = tasks.filter((t) => {
     if (statusFilter !== "todas" && t.status !== statusFilter) return false
     if (nameFilter) {
-      const name = (t.requesterName || t.requestedBy.name).toLowerCase()
+      const name = (t.requesterName || t.requestedBy?.name || "").toLowerCase()
       if (!name.includes(nameFilter.toLowerCase())) return false
     }
     if (deptFilter !== "todos") {
-      const dept = t.requesterDepartment || t.requestedBy.department
+      const dept = t.requesterDepartment || t.requestedBy?.department
       if (dept !== deptFilter) return false
     }
     return true
@@ -108,6 +98,17 @@ function MisSolicitudesContent() {
   }
 
   const getDeptLabel = (value: string) => DEPT_LABELS[value] || value
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50">
+        <DashboardHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50">
@@ -202,7 +203,7 @@ function MisSolicitudesContent() {
                 <SelectContent>
                   <SelectItem value="todos">Todos los Departamentos</SelectItem>
                   {departments.map((d) => (
-                    <SelectItem key={d} value={d}>{getDeptLabel(d)}</SelectItem>
+                    <SelectItem key={d} value={d!}>{getDeptLabel(d!)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -260,8 +261,8 @@ function MisSolicitudesContent() {
               const pc = priorityConfig[task.priority]
               const isExpanded = expandedId === task.id
               const step = getStepProgress(task.status)
-              const requesterName = task.requesterName || task.requestedBy.name
-              const requesterDept = getDeptLabel(task.requesterDepartment || task.requestedBy.department)
+              const requesterName = task.requesterName || task.requestedBy?.name || "Desconocido"
+              const requesterDept = getDeptLabel(task.requesterDepartment || task.requestedBy?.department || "")
 
               return (
                 <Card key={task.id} className="border-2 border-slate-200 bg-white hover:shadow-lg transition-all overflow-hidden">
@@ -309,7 +310,7 @@ function MisSolicitudesContent() {
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <Badge className={`${sc.bg} ${sc.color} border`}>{sc.label}</Badge>
-                        {task.comments.length > 0 && (
+                        {task.comments && task.comments.length > 0 && (
                           <span className="flex items-center gap-1 text-xs text-slate-400">
                             <MessageSquare className="h-3 w-3" /> {task.comments.length}
                           </span>
@@ -363,48 +364,22 @@ function MisSolicitudesContent() {
                                 <div key={att.id} className="relative group">
                                   <img src={att.url} alt={att.filename}
                                     className="h-20 w-20 object-cover rounded-lg border-2 border-slate-200 cursor-pointer hover:border-blue-400 transition-colors"
-                                    onClick={() => window.open(att.url, "_blank")} />
-                                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-0.5 rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <ImageIcon className="h-3 w-3 inline mr-0.5" /> Ver
-                                  </div>
+                                    crossOrigin="anonymous"
+                                  />
                                 </div>
                               ))}
                               {task.attachments.filter((a) => a.type === "audio").map((att) => (
-                                <div key={att.id} className="flex items-center gap-2 bg-white border-2 border-slate-200 rounded-lg p-2">
-                                  <Mic className="h-4 w-4 text-blue-500" />
-                                  <audio controls src={att.url} className="h-8" />
+                                <div key={att.id} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                                  <Mic className="h-4 w-4 text-blue-600" />
+                                  <audio src={att.url} controls className="h-8" />
                                 </div>
                               ))}
                             </div>
                           </div>
                         )}
 
-                        {/* Comments */}
-                        {task.comments.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-sm font-semibold text-slate-700">Comentarios recientes</p>
-                            <div className="space-y-2 max-h-40 overflow-y-auto">
-                              {task.comments.slice(-3).map((c) => (
-                                <div key={c.id} className="flex gap-2 bg-white rounded-lg p-3 border border-slate-200">
-                                  <div className="h-7 w-7 rounded-full bg-gradient-to-br from-blue-400 to-indigo-400 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                                    {c.userName.charAt(0)}
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-semibold text-slate-700">{c.userName}</p>
-                                    <p className="text-xs text-slate-500">{c.comment}</p>
-                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                      {formatDistanceToNow(new Date(c.createdAt), { addSuffix: true, locale: es })}
-                                    </p>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <Button onClick={() => router.push(`/tarea/${task.id}`)}
-                          className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white">
-                          Ver Detalle Completo <ArrowRight className="h-4 w-4 ml-2" />
+                        <Button onClick={() => router.push(`/tarea/${task.id}`)} className="w-full" variant="outline">
+                          Ver Detalles Completos <ArrowRight className="h-4 w-4 ml-2" />
                         </Button>
                       </div>
                     )}
