@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 // Helper to get current user from session
@@ -9,14 +9,21 @@ async function getCurrentUser() {
   
   if (!sessionToken) return null
   
-  const sessions = await sql`
-    SELECT u.id, u.username, u.name, u.role, u.avatar
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${sessionToken}
-    AND s.expires_at > NOW()
-    AND u.is_active = true
-  `
+  const sessions = await query<{
+    id: string
+    username: string
+    name: string
+    role: string
+    avatar: string | null
+  }>(
+    `SELECT u.id, u.username, u.name, u.role, u.avatar
+     FROM sessions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.token = $1
+     AND s.expires_at > NOW()
+     AND u.is_active = true`,
+    [sessionToken]
+  )
   
   if (sessions.length === 0) return null
   return sessions[0]
@@ -34,47 +41,51 @@ export async function GET(
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const tasks = await sql`
-      SELECT t.*, 
+    const tasks = await query(
+      `SELECT t.*, 
         e.id as emp_id, e.name as emp_name, e.email as emp_email, e.color as emp_color, e.avatar as emp_avatar, e.role as emp_role,
         u.id as req_id, u.name as req_name, u.avatar as req_avatar,
         p.id as proj_id, p.name as proj_name, p.color as proj_color
-      FROM tasks t
-      LEFT JOIN employees e ON t.assigned_to_id = e.id
-      LEFT JOIN users u ON t.requested_by_id = u.id
-      LEFT JOIN projects p ON t.project_id = p.id
-      WHERE t.id = ${id}
-    `
+       FROM tasks t
+       LEFT JOIN employees e ON t.assigned_to_id = e.id
+       LEFT JOIN users u ON t.requested_by_id = u.id
+       LEFT JOIN projects p ON t.project_id = p.id
+       WHERE t.id = $1`,
+      [id]
+    )
 
     if (tasks.length === 0) {
       return NextResponse.json({ error: 'Tarea no encontrada' }, { status: 404 })
     }
 
-    const t = tasks[0]
+    const t = tasks[0] as Record<string, unknown>
 
     // Get attachments
-    const attachments = await sql`
-      SELECT id, type, url, name, created_at
-      FROM task_attachments
-      WHERE task_id = ${id}
-      ORDER BY created_at ASC
-    `
+    const attachments = await query(
+      `SELECT id, type, url, name, created_at
+       FROM task_attachments
+       WHERE task_id = $1
+       ORDER BY created_at ASC`,
+      [id]
+    )
 
     // Get comments
-    const comments = await sql`
-      SELECT id, user_id, user_name, user_avatar, text, created_at
-      FROM task_comments
-      WHERE task_id = ${id}
-      ORDER BY created_at ASC
-    `
+    const comments = await query(
+      `SELECT id, user_id, user_name, user_avatar, text, created_at
+       FROM task_comments
+       WHERE task_id = $1
+       ORDER BY created_at ASC`,
+      [id]
+    )
 
     // Get history
-    const history = await sql`
-      SELECT id, user_id, user_name, action, details, created_at
-      FROM task_history
-      WHERE task_id = ${id}
-      ORDER BY created_at DESC
-    `
+    const history = await query(
+      `SELECT id, user_id, user_name, action, details, created_at
+       FROM task_history
+       WHERE task_id = $1
+       ORDER BY created_at DESC`,
+      [id]
+    )
 
     const task = {
       id: t.id,
@@ -106,14 +117,14 @@ export async function GET(
         name: t.proj_name,
         color: t.proj_color
       } : null,
-      attachments: attachments.map(a => ({
+      attachments: (attachments as Record<string, unknown>[]).map(a => ({
         id: a.id,
         type: a.type,
         url: a.url,
         name: a.name,
         createdAt: a.created_at
       })),
-      comments: comments.map(c => ({
+      comments: (comments as Record<string, unknown>[]).map(c => ({
         id: c.id,
         userId: c.user_id,
         userName: c.user_name,
@@ -121,7 +132,7 @@ export async function GET(
         text: c.text,
         createdAt: c.created_at
       })),
-      history: history.map(h => ({
+      history: (history as Record<string, unknown>[]).map(h => ({
         id: h.id,
         userId: h.user_id,
         userName: h.user_name,
@@ -154,7 +165,7 @@ export async function PUT(
     const { title, description, status, priority, dueDate, dueTime, assignedToId, projectId, isArchived } = body
 
     // Get current task state for history
-    const currentTask = await sql`SELECT * FROM tasks WHERE id = ${id}`
+    const currentTask = await query<Record<string, unknown>>('SELECT * FROM tasks WHERE id = $1', [id])
     if (currentTask.length === 0) {
       return NextResponse.json({ error: 'Tarea no encontrada' }, { status: 404 })
     }
@@ -171,38 +182,53 @@ export async function PUT(
     // Update task
     const completedAt = status === 'completada' && oldTask.status !== 'completada' ? new Date().toISOString() : oldTask.completed_at
 
-    await sql`
-      UPDATE tasks 
-      SET title = COALESCE(${title}, title),
-          description = COALESCE(${description}, description),
-          status = COALESCE(${status}, status),
-          priority = COALESCE(${priority}, priority),
-          due_date = ${dueDate !== undefined ? dueDate : oldTask.due_date},
-          due_time = ${dueTime !== undefined ? dueTime : oldTask.due_time},
-          assigned_to_id = ${assignedToId !== undefined ? assignedToId : oldTask.assigned_to_id},
-          project_id = ${projectId !== undefined ? projectId : oldTask.project_id},
-          is_archived = COALESCE(${isArchived}, is_archived),
-          completed_at = ${completedAt},
-          updated_at = NOW()
-      WHERE id = ${id}
-    `
+    await query(
+      `UPDATE tasks 
+       SET title = COALESCE($1, title),
+           description = COALESCE($2, description),
+           status = COALESCE($3, status),
+           priority = COALESCE($4, priority),
+           due_date = $5,
+           due_time = $6,
+           assigned_to_id = $7,
+           project_id = $8,
+           is_archived = COALESCE($9, is_archived),
+           completed_at = $10,
+           updated_at = NOW()
+       WHERE id = $11`,
+      [
+        title, 
+        description, 
+        status, 
+        priority, 
+        dueDate !== undefined ? dueDate : oldTask.due_date, 
+        dueTime !== undefined ? dueTime : oldTask.due_time, 
+        assignedToId !== undefined ? assignedToId : oldTask.assigned_to_id, 
+        projectId !== undefined ? projectId : oldTask.project_id, 
+        isArchived, 
+        completedAt, 
+        id
+      ]
+    )
 
     // Add history entry if there were changes
     if (changes.length > 0) {
-      await sql`
-        INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
-        VALUES (${generateUUID()}, ${id}, ${user.id}, ${user.name}, 'updated', ${changes.join(', ')}, NOW())
-      `
+      await query(
+        `INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
+         VALUES ($1, $2, $3, $4, 'updated', $5, NOW())`,
+        [generateUUID(), id, user.id, user.name, changes.join(', ')]
+      )
     }
 
     // Create notification if task was assigned to someone new
     if (assignedToId && assignedToId !== oldTask.assigned_to_id) {
-      const employee = await sql`SELECT user_id FROM employees WHERE id = ${assignedToId}`
+      const employee = await query<{ user_id: string | null }>('SELECT user_id FROM employees WHERE id = $1', [assignedToId])
       if (employee.length > 0 && employee[0].user_id) {
-        await sql`
-          INSERT INTO notifications (id, user_id, type, title, message, task_id, is_read, created_at)
-          VALUES (${generateUUID()}, ${employee[0].user_id}, 'task_assigned', 'Tarea asignada', ${title || oldTask.title}, ${id}, false, NOW())
-        `
+        await query(
+          `INSERT INTO notifications (id, user_id, type, title, message, task_id, is_read, created_at)
+           VALUES ($1, $2, 'task_assigned', 'Tarea asignada', $3, $4, false, NOW())`,
+          [generateUUID(), employee[0].user_id, title || oldTask.title, id]
+        )
       }
     }
 
@@ -225,7 +251,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    await sql`DELETE FROM tasks WHERE id = ${id}`
+    await query('DELETE FROM tasks WHERE id = $1', [id])
 
     return NextResponse.json({ success: true })
   } catch (error) {

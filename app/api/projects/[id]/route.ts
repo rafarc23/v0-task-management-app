@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '@/lib/db'
+import { query } from '@/lib/db'
 
 // GET single project
 export async function GET(
@@ -8,10 +8,11 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const projects = await sql`
-      SELECT id, name, description, color, is_active, created_at
-      FROM projects WHERE id = ${id}
-    `
+    const projects = await query(
+      `SELECT id, name, description, color, is_active, created_at
+       FROM projects WHERE id = $1`,
+      [id]
+    )
 
     if (projects.length === 0) {
       return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 })
@@ -33,16 +34,18 @@ export async function PUT(
     const { id } = await params
     const { name, description, color, is_active } = await request.json()
 
-    await sql`
-      UPDATE projects 
-      SET name = ${name}, description = ${description}, color = ${color}, is_active = ${is_active}
-      WHERE id = ${id}
-    `
+    await query(
+      `UPDATE projects 
+       SET name = $1, description = $2, color = $3, is_active = $4
+       WHERE id = $5`,
+      [name, description, color, is_active, id]
+    )
 
-    const updatedProject = await sql`
-      SELECT id, name, description, color, is_active, created_at
-      FROM projects WHERE id = ${id}
-    `
+    const updatedProject = await query(
+      `SELECT id, name, description, color, is_active, created_at
+       FROM projects WHERE id = $1`,
+      [id]
+    )
 
     return NextResponse.json(updatedProject[0])
   } catch (error) {
@@ -58,7 +61,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    await sql`UPDATE projects SET is_active = false WHERE id = ${id}`
+    await query('UPDATE projects SET is_active = false WHERE id = $1', [id])
 
     return NextResponse.json({ success: true })
   } catch (error) {

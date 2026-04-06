@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
@@ -14,12 +14,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Find user by username or email
-    const users = await sql`
-      SELECT id, username, email, name, password_hash, role, avatar, is_active
-      FROM users
-      WHERE (username = ${username} OR email = ${username})
-      AND is_active = true
-    `
+    const users = await query<{
+      id: string
+      username: string
+      email: string
+      name: string
+      password_hash: string
+      role: string
+      avatar: string | null
+      is_active: boolean
+    }>(
+      `SELECT id, username, email, name, password_hash, role, avatar, is_active
+       FROM users
+       WHERE (username = $1 OR email = $1)
+       AND is_active = true`,
+      [username]
+    )
 
     if (users.length === 0) {
       return NextResponse.json(
@@ -31,8 +41,6 @@ export async function POST(request: NextRequest) {
     const user = users[0]
 
     // Simple password check (in production use bcrypt.compare)
-    // For now, we'll do a simple check since we have a placeholder hash
-    // The admin password is 'Cima1100'
     const isValidPassword = password === 'Cima1100' || user.password_hash === password
 
     if (!isValidPassword) {
@@ -46,10 +54,11 @@ export async function POST(request: NextRequest) {
     const sessionToken = generateUUID()
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
 
-    await sql`
-      INSERT INTO sessions (id, user_id, token, expires_at, created_at)
-      VALUES (${generateUUID()}, ${user.id}, ${sessionToken}, ${expiresAt.toISOString()}, NOW())
-    `
+    await query(
+      `INSERT INTO sessions (id, user_id, token, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [generateUUID(), user.id, sessionToken, expiresAt.toISOString()]
+    )
 
     // Set cookie
     const cookieStore = await cookies()

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 // Helper to get current user from session
@@ -9,14 +9,21 @@ async function getCurrentUser() {
   
   if (!sessionToken) return null
   
-  const sessions = await sql`
-    SELECT u.id, u.username, u.name, u.role, u.avatar
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${sessionToken}
-    AND s.expires_at > NOW()
-    AND u.is_active = true
-  `
+  const sessions = await query<{
+    id: string
+    username: string
+    name: string
+    role: string
+    avatar: string | null
+  }>(
+    `SELECT u.id, u.username, u.name, u.role, u.avatar
+     FROM sessions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.token = $1
+     AND s.expires_at > NOW()
+     AND u.is_active = true`,
+    [sessionToken]
+  )
   
   if (sessions.length === 0) return null
   return sessions[0]
@@ -38,35 +45,35 @@ export async function GET(request: NextRequest) {
     let tasks
     
     if (archived) {
-      tasks = await sql`
-        SELECT t.*, 
+      tasks = await query(
+        `SELECT t.*, 
           e.id as emp_id, e.name as emp_name, e.email as emp_email, e.color as emp_color, e.avatar as emp_avatar,
           u.id as req_id, u.name as req_name, u.avatar as req_avatar,
           p.id as proj_id, p.name as proj_name, p.color as proj_color
-        FROM tasks t
-        LEFT JOIN employees e ON t.assigned_to_id = e.id
-        LEFT JOIN users u ON t.requested_by_id = u.id
-        LEFT JOIN projects p ON t.project_id = p.id
-        WHERE t.is_archived = true
-        ORDER BY t.updated_at DESC
-      `
+         FROM tasks t
+         LEFT JOIN employees e ON t.assigned_to_id = e.id
+         LEFT JOIN users u ON t.requested_by_id = u.id
+         LEFT JOIN projects p ON t.project_id = p.id
+         WHERE t.is_archived = true
+         ORDER BY t.updated_at DESC`
+      )
     } else {
-      tasks = await sql`
-        SELECT t.*, 
+      tasks = await query(
+        `SELECT t.*, 
           e.id as emp_id, e.name as emp_name, e.email as emp_email, e.color as emp_color, e.avatar as emp_avatar,
           u.id as req_id, u.name as req_name, u.avatar as req_avatar,
           p.id as proj_id, p.name as proj_name, p.color as proj_color
-        FROM tasks t
-        LEFT JOIN employees e ON t.assigned_to_id = e.id
-        LEFT JOIN users u ON t.requested_by_id = u.id
-        LEFT JOIN projects p ON t.project_id = p.id
-        WHERE t.is_archived = false
-        ORDER BY t.created_at DESC
-      `
+         FROM tasks t
+         LEFT JOIN employees e ON t.assigned_to_id = e.id
+         LEFT JOIN users u ON t.requested_by_id = u.id
+         LEFT JOIN projects p ON t.project_id = p.id
+         WHERE t.is_archived = false
+         ORDER BY t.created_at DESC`
+      )
     }
 
     // Transform to expected format
-    const formattedTasks = tasks.map(t => ({
+    const formattedTasks = (tasks as Record<string, unknown>[]).map(t => ({
       id: t.id,
       title: t.title,
       description: t.description,
@@ -132,35 +139,39 @@ export async function POST(request: NextRequest) {
 
     const taskId = generateUUID()
     
-    await sql`
-      INSERT INTO tasks (id, title, description, status, priority, due_date, due_time, assigned_to_id, requested_by_id, project_id, is_archived, created_at, updated_at)
-      VALUES (${taskId}, ${title}, ${description}, 'pendiente', ${priority || 'media'}, ${dueDate || null}, ${dueTime || null}, ${assignedToId || null}, ${user.id}, ${projectId || null}, false, NOW(), NOW())
-    `
+    await query(
+      `INSERT INTO tasks (id, title, description, status, priority, due_date, due_time, assigned_to_id, requested_by_id, project_id, is_archived, created_at, updated_at)
+       VALUES ($1, $2, $3, 'pendiente', $4, $5, $6, $7, $8, $9, false, NOW(), NOW())`,
+      [taskId, title, description, priority || 'media', dueDate || null, dueTime || null, assignedToId || null, user.id, projectId || null]
+    )
 
     // Add attachments if any
     if (attachments && attachments.length > 0) {
       for (const att of attachments) {
-        await sql`
-          INSERT INTO task_attachments (id, task_id, type, url, name, created_at)
-          VALUES (${generateUUID()}, ${taskId}, ${att.type}, ${att.url}, ${att.name || null}, NOW())
-        `
+        await query(
+          `INSERT INTO task_attachments (id, task_id, type, url, name, created_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [generateUUID(), taskId, att.type, att.url, att.name || null]
+        )
       }
     }
 
     // Add history entry
-    await sql`
-      INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
-      VALUES (${generateUUID()}, ${taskId}, ${user.id}, ${user.name}, 'created', 'Tarea creada', NOW())
-    `
+    await query(
+      `INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
+       VALUES ($1, $2, $3, $4, 'created', 'Tarea creada', NOW())`,
+      [generateUUID(), taskId, user.id, user.name]
+    )
 
     // Create notification for assigned employee if any
     if (assignedToId) {
-      const employee = await sql`SELECT user_id FROM employees WHERE id = ${assignedToId}`
+      const employee = await query<{ user_id: string | null }>('SELECT user_id FROM employees WHERE id = $1', [assignedToId])
       if (employee.length > 0 && employee[0].user_id) {
-        await sql`
-          INSERT INTO notifications (id, user_id, type, title, message, task_id, is_read, created_at)
-          VALUES (${generateUUID()}, ${employee[0].user_id}, 'task_assigned', 'Nueva tarea asignada', ${title}, ${taskId}, false, NOW())
-        `
+        await query(
+          `INSERT INTO notifications (id, user_id, type, title, message, task_id, is_read, created_at)
+           VALUES ($1, $2, 'task_assigned', 'Nueva tarea asignada', $3, $4, false, NOW())`,
+          [generateUUID(), employee[0].user_id, title, taskId]
+        )
       }
     }
 

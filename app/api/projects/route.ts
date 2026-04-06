@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 
 // GET all projects
 export async function GET() {
   try {
-    const projects = await sql`
-      SELECT id, name, description, color, is_active, created_at
-      FROM projects
-      WHERE is_active = true
-      ORDER BY name ASC
-    `
+    const projects = await query(
+      `SELECT id, name, description, color, is_active, created_at
+       FROM projects
+       WHERE is_active = true
+       ORDER BY name ASC`
+    )
 
     return NextResponse.json(projects)
   } catch (error) {
@@ -29,15 +29,17 @@ export async function POST(request: NextRequest) {
 
     const id = generateUUID()
     
-    await sql`
-      INSERT INTO projects (id, name, description, color, is_active, created_at)
-      VALUES (${id}, ${name}, ${description || ''}, ${color || '#3b82f6'}, true, NOW())
-    `
+    await query(
+      `INSERT INTO projects (id, name, description, color, is_active, created_at)
+       VALUES ($1, $2, $3, $4, true, NOW())`,
+      [id, name, description || '', color || '#3b82f6']
+    )
 
-    const newProject = await sql`
-      SELECT id, name, description, color, is_active, created_at
-      FROM projects WHERE id = ${id}
-    `
+    const newProject = await query(
+      `SELECT id, name, description, color, is_active, created_at
+       FROM projects WHERE id = $1`,
+      [id]
+    )
 
     return NextResponse.json(newProject[0], { status: 201 })
   } catch (error) {

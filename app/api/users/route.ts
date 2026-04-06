@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 // Helper to verify admin session
@@ -9,14 +9,15 @@ async function verifyAdmin() {
   
   if (!sessionToken) return null
   
-  const sessions = await sql`
-    SELECT u.id, u.role
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${sessionToken}
-    AND s.expires_at > NOW()
-    AND u.is_active = true
-  `
+  const sessions = await query<{ id: string; role: string }>(
+    `SELECT u.id, u.role
+     FROM sessions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.token = $1
+     AND s.expires_at > NOW()
+     AND u.is_active = true`,
+    [sessionToken]
+  )
   
   if (sessions.length === 0 || sessions[0].role !== 'admin') return null
   return sessions[0]
@@ -30,11 +31,11 @@ export async function GET() {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const users = await sql`
-      SELECT id, username, email, name, role, avatar, is_active, created_at, updated_at
-      FROM users
-      ORDER BY created_at DESC
-    `
+    const users = await query(
+      `SELECT id, username, email, name, role, avatar, is_active, created_at, updated_at
+       FROM users
+       ORDER BY created_at DESC`
+    )
 
     return NextResponse.json(users)
   } catch (error) {
@@ -58,9 +59,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if username or email already exists
-    const existing = await sql`
-      SELECT id FROM users WHERE username = ${username} OR email = ${email}
-    `
+    const existing = await query(
+      'SELECT id FROM users WHERE username = $1 OR email = $2',
+      [username, email]
+    )
     
     if (existing.length > 0) {
       return NextResponse.json({ error: 'El usuario o email ya existe' }, { status: 400 })
@@ -68,15 +70,17 @@ export async function POST(request: NextRequest) {
 
     const id = generateUUID()
     
-    await sql`
-      INSERT INTO users (id, username, email, name, password_hash, role, is_active, created_at, updated_at)
-      VALUES (${id}, ${username}, ${email}, ${name}, ${password}, ${role || 'employee'}, true, NOW(), NOW())
-    `
+    await query(
+      `INSERT INTO users (id, username, email, name, password_hash, role, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())`,
+      [id, username, email, name, password, role || 'employee']
+    )
 
-    const newUser = await sql`
-      SELECT id, username, email, name, role, avatar, is_active, created_at
-      FROM users WHERE id = ${id}
-    `
+    const newUser = await query(
+      `SELECT id, username, email, name, role, avatar, is_active, created_at
+       FROM users WHERE id = $1`,
+      [id]
+    )
 
     return NextResponse.json(newUser[0], { status: 201 })
   } catch (error) {

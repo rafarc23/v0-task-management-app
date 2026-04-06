@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '@/lib/db'
+import { query } from '@/lib/db'
 
 // GET single employee
 export async function GET(
@@ -8,10 +8,11 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const employees = await sql`
-      SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
-      FROM employees WHERE id = ${id}
-    `
+    const employees = await query(
+      `SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
+       FROM employees WHERE id = $1`,
+      [id]
+    )
 
     if (employees.length === 0) {
       return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 })
@@ -33,17 +34,18 @@ export async function PUT(
     const { id } = await params
     const { name, email, role, color, avatar, is_active } = await request.json()
 
-    await sql`
-      UPDATE employees 
-      SET name = ${name}, email = ${email}, role = ${role}, 
-          color = ${color}, avatar = ${avatar}, is_active = ${is_active}
-      WHERE id = ${id}
-    `
+    await query(
+      `UPDATE employees 
+       SET name = $1, email = $2, role = $3, color = $4, avatar = $5, is_active = $6
+       WHERE id = $7`,
+      [name, email, role, color, avatar, is_active, id]
+    )
 
-    const updatedEmployee = await sql`
-      SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
-      FROM employees WHERE id = ${id}
-    `
+    const updatedEmployee = await query(
+      `SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
+       FROM employees WHERE id = $1`,
+      [id]
+    )
 
     return NextResponse.json(updatedEmployee[0])
   } catch (error) {
@@ -59,7 +61,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    await sql`UPDATE employees SET is_active = false WHERE id = ${id}`
+    await query('UPDATE employees SET is_active = false WHERE id = $1', [id])
 
     return NextResponse.json({ success: true })
   } catch (error) {

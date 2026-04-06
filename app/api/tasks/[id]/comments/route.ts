@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 // Helper to get current user from session
@@ -9,14 +9,21 @@ async function getCurrentUser() {
   
   if (!sessionToken) return null
   
-  const sessions = await sql`
-    SELECT u.id, u.username, u.name, u.role, u.avatar
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${sessionToken}
-    AND s.expires_at > NOW()
-    AND u.is_active = true
-  `
+  const sessions = await query<{
+    id: string
+    username: string
+    name: string
+    role: string
+    avatar: string | null
+  }>(
+    `SELECT u.id, u.username, u.name, u.role, u.avatar
+     FROM sessions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.token = $1
+     AND s.expires_at > NOW()
+     AND u.is_active = true`,
+    [sessionToken]
+  )
   
   if (sessions.length === 0) return null
   return sessions[0]
@@ -42,21 +49,31 @@ export async function POST(
 
     const commentId = generateUUID()
 
-    await sql`
-      INSERT INTO task_comments (id, task_id, user_id, user_name, user_avatar, text, created_at)
-      VALUES (${commentId}, ${taskId}, ${user.id}, ${user.name}, ${user.avatar || null}, ${text}, NOW())
-    `
+    await query(
+      `INSERT INTO task_comments (id, task_id, user_id, user_name, user_avatar, text, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [commentId, taskId, user.id, user.name, user.avatar || null, text]
+    )
 
     // Add history entry
-    await sql`
-      INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
-      VALUES (${generateUUID()}, ${taskId}, ${user.id}, ${user.name}, 'comment', 'Comentario añadido', NOW())
-    `
+    await query(
+      `INSERT INTO task_history (id, task_id, user_id, user_name, action, details, created_at)
+       VALUES ($1, $2, $3, $4, 'comment', 'Comentario añadido', NOW())`,
+      [generateUUID(), taskId, user.id, user.name]
+    )
 
-    const comment = await sql`
-      SELECT id, user_id, user_name, user_avatar, text, created_at
-      FROM task_comments WHERE id = ${commentId}
-    `
+    const comment = await query<{
+      id: string
+      user_id: string
+      user_name: string
+      user_avatar: string | null
+      text: string
+      created_at: string
+    }>(
+      `SELECT id, user_id, user_name, user_avatar, text, created_at
+       FROM task_comments WHERE id = $1`,
+      [commentId]
+    )
 
     return NextResponse.json({
       id: comment[0].id,

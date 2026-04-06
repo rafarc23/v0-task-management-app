@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { sql } from '@/lib/db'
+import { query } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 export async function GET() {
@@ -12,14 +12,23 @@ export async function GET() {
     }
 
     // Find session and user
-    const sessions = await sql`
-      SELECT s.*, u.id as user_id, u.username, u.email, u.name, u.role, u.avatar, u.is_active
-      FROM sessions s
-      JOIN users u ON s.user_id = u.id
-      WHERE s.token = ${sessionToken}
-      AND s.expires_at > NOW()
-      AND u.is_active = true
-    `
+    const sessions = await query<{
+      user_id: string
+      username: string
+      email: string
+      name: string
+      role: string
+      avatar: string | null
+      is_active: boolean
+    }>(
+      `SELECT s.*, u.id as user_id, u.username, u.email, u.name, u.role, u.avatar, u.is_active
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.token = $1
+       AND s.expires_at > NOW()
+       AND u.is_active = true`,
+      [sessionToken]
+    )
 
     if (sessions.length === 0) {
       // Invalid or expired session, clear cookie

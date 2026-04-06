@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '@/lib/db'
+import { query } from '@/lib/db'
 import { cookies } from 'next/headers'
 
 // Helper to get current user from session
@@ -9,14 +9,21 @@ async function getCurrentUser() {
   
   if (!sessionToken) return null
   
-  const sessions = await sql`
-    SELECT u.id, u.username, u.name, u.role, u.avatar
-    FROM sessions s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.token = ${sessionToken}
-    AND s.expires_at > NOW()
-    AND u.is_active = true
-  `
+  const sessions = await query<{
+    id: string
+    username: string
+    name: string
+    role: string
+    avatar: string | null
+  }>(
+    `SELECT u.id, u.username, u.name, u.role, u.avatar
+     FROM sessions s
+     JOIN users u ON s.user_id = u.id
+     WHERE s.token = $1
+     AND s.expires_at > NOW()
+     AND u.is_active = true`,
+    [sessionToken]
+  )
   
   if (sessions.length === 0) return null
   return sessions[0]
@@ -30,22 +37,24 @@ export async function GET() {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const notifications = await sql`
-      SELECT id, type, title, message, task_id, is_read, created_at
-      FROM notifications
-      WHERE user_id = ${user.id}
-      ORDER BY created_at DESC
-      LIMIT 50
-    `
+    const notifications = await query(
+      `SELECT id, type, title, message, task_id, is_read, created_at
+       FROM notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [user.id]
+    )
 
-    const unreadCount = await sql`
-      SELECT COUNT(*) as count
-      FROM notifications
-      WHERE user_id = ${user.id} AND is_read = false
-    `
+    const unreadCount = await query<{ count: string }>(
+      `SELECT COUNT(*) as count
+       FROM notifications
+       WHERE user_id = $1 AND is_read = false`,
+      [user.id]
+    )
 
     return NextResponse.json({
-      notifications: notifications.map(n => ({
+      notifications: (notifications as Record<string, unknown>[]).map(n => ({
         id: n.id,
         type: n.type,
         title: n.title,
@@ -73,15 +82,12 @@ export async function PUT(request: NextRequest) {
     const { notificationId, markAllRead } = await request.json()
 
     if (markAllRead) {
-      await sql`
-        UPDATE notifications SET is_read = true
-        WHERE user_id = ${user.id}
-      `
+      await query('UPDATE notifications SET is_read = true WHERE user_id = $1', [user.id])
     } else if (notificationId) {
-      await sql`
-        UPDATE notifications SET is_read = true
-        WHERE id = ${notificationId} AND user_id = ${user.id}
-      `
+      await query(
+        'UPDATE notifications SET is_read = true WHERE id = $1 AND user_id = $2',
+        [notificationId, user.id]
+      )
     }
 
     return NextResponse.json({ success: true })

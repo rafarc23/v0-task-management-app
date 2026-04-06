@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, generateUUID } from '@/lib/db'
+import { query, generateUUID } from '@/lib/db'
 
 // GET all employees
 export async function GET() {
   try {
-    const employees = await sql`
-      SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
-      FROM employees
-      WHERE is_active = true
-      ORDER BY name ASC
-    `
+    const employees = await query(
+      `SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
+       FROM employees
+       WHERE is_active = true
+       ORDER BY name ASC`
+    )
 
     return NextResponse.json(employees)
   } catch (error) {
@@ -29,15 +29,17 @@ export async function POST(request: NextRequest) {
 
     const id = generateUUID()
     
-    await sql`
-      INSERT INTO employees (id, name, email, role, color, avatar, is_active, created_at)
-      VALUES (${id}, ${name}, ${email}, ${role || 'Empleado'}, ${color || '#3b82f6'}, ${avatar || null}, true, NOW())
-    `
+    await query(
+      `INSERT INTO employees (id, name, email, role, color, avatar, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, NOW())`,
+      [id, name, email, role || 'Empleado', color || '#3b82f6', avatar || null]
+    )
 
-    const newEmployee = await sql`
-      SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
-      FROM employees WHERE id = ${id}
-    `
+    const newEmployee = await query(
+      `SELECT id, user_id, name, email, role, avatar, color, is_active, created_at
+       FROM employees WHERE id = $1`,
+      [id]
+    )
 
     return NextResponse.json(newEmployee[0], { status: 201 })
   } catch (error) {
