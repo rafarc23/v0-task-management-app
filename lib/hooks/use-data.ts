@@ -95,17 +95,74 @@ export function useNotifications() {
   }
 }
 
-// Users hook (admin only)
+// Users hook (admin only) - includes mutation functions
 export function useUsers() {
   const { data, error, isLoading, mutate } = useSWR('/api/users', fetcher, {
     revalidateOnFocus: false,
+    dedupingInterval: 30000,
   })
+
+  const createUser = async (userData: Record<string, unknown>) => {
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    })
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Error creating user')
+    }
+    await mutate()
+    return res.json()
+  }
+
+  const updateUser = async (id: string, userData: Record<string, unknown>) => {
+    const res = await fetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    })
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Error updating user')
+    }
+    await mutate()
+    return res.json()
+  }
+
+  const deleteUser = async (id: string) => {
+    const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Error deleting user')
+    }
+    await mutate()
+    return res.json()
+  }
+
+  const resetPassword = async (id: string, newPassword: string) => {
+    const res = await fetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: newPassword }),
+    })
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Error resetting password')
+    }
+    await mutate()
+    return res.json()
+  }
 
   return {
     users: data || [],
     isLoading,
     isError: error,
     mutate,
+    createUser,
+    updateUser,
+    deleteUser,
+    resetPassword,
   }
 }
 

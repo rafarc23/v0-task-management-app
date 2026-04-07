@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, memo } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
@@ -66,6 +66,164 @@ interface StoredUser {
   lastLogin?: string
 }
 
+interface FormData {
+  username: string
+  password: string
+  name: string
+  email: string
+  role: UserRole
+  department: string
+  isActive: boolean
+}
+
+// Extracted UserForm as a separate memoized component to prevent re-renders
+const UserForm = memo(function UserForm({
+  formData,
+  setFormData,
+  onSubmit,
+  isEdit,
+  isAdminUser,
+  isSubmitting,
+}: {
+  formData: FormData
+  setFormData: (data: FormData) => void
+  onSubmit: (e: React.FormEvent) => void
+  isEdit: boolean
+  isAdminUser: boolean
+  isSubmitting: boolean
+}) {
+  const handleInputChange = useCallback((field: keyof FormData, value: string | boolean) => {
+    setFormData({ ...formData, [field]: value })
+  }, [formData, setFormData])
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor={isEdit ? "edit-username" : "username"}>Usuario</Label>
+          <Input
+            id={isEdit ? "edit-username" : "username"}
+            value={formData.username}
+            onChange={(e) => handleInputChange("username", e.target.value)}
+            required
+            disabled={isEdit && isAdminUser}
+            placeholder="nombre.usuario"
+            autoComplete="off"
+          />
+        </div>
+        {!isEdit && (
+          <div className="space-y-2">
+            <Label htmlFor="password">Contrasena</Label>
+            <Input
+              id="password"
+              type="password"
+              value={formData.password}
+              onChange={(e) => handleInputChange("password", e.target.value)}
+              required={!isEdit}
+              placeholder="********"
+              autoComplete="new-password"
+            />
+          </div>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor={isEdit ? "edit-name" : "name"}>Nombre Completo</Label>
+        <Input
+          id={isEdit ? "edit-name" : "name"}
+          value={formData.name}
+          onChange={(e) => handleInputChange("name", e.target.value)}
+          required
+          placeholder="Juan Perez"
+          autoComplete="off"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor={isEdit ? "edit-email" : "email"}>Email</Label>
+        <Input
+          id={isEdit ? "edit-email" : "email"}
+          type="email"
+          value={formData.email}
+          onChange={(e) => handleInputChange("email", e.target.value)}
+          required
+          placeholder="usuario@empresa.com"
+          autoComplete="off"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor={isEdit ? "edit-department" : "department"}>Departamento</Label>
+        <Input
+          id={isEdit ? "edit-department" : "department"}
+          value={formData.department}
+          onChange={(e) => handleInputChange("department", e.target.value)}
+          placeholder="Infraestructura y TI"
+          autoComplete="off"
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Rol</Label>
+        <Select
+          value={formData.role}
+          onValueChange={(value: UserRole) => handleInputChange("role", value)}
+          disabled={isEdit && isAdminUser}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="admin">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-blue-500" />
+                Administrador
+              </div>
+            </SelectItem>
+            <SelectItem value="employee">
+              <div className="flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-emerald-500" />
+                Empleado
+              </div>
+            </SelectItem>
+            <SelectItem value="requester">
+              <div className="flex items-center gap-2">
+                <Send className="h-4 w-4 text-amber-500" />
+                Solicitante
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {isEdit && (
+        <div className="flex items-center justify-between p-3 rounded-lg border">
+          <div className="space-y-0.5">
+            <Label htmlFor="isActive">Usuario Activo</Label>
+            <p className="text-xs text-muted-foreground">
+              Los usuarios inactivos no pueden iniciar sesion
+            </p>
+          </div>
+          <Switch
+            id="isActive"
+            checked={formData.isActive}
+            onCheckedChange={(checked) => handleInputChange("isActive", checked)}
+            disabled={isAdminUser}
+          />
+        </div>
+      )}
+      <DialogFooter>
+        <Button 
+          type="submit" 
+          disabled={isSubmitting}
+          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+        >
+          {isSubmitting ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</>
+          ) : (
+            isEdit ? "Guardar Cambios" : "Crear Usuario"
+          )}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+})
+
 export default function UsersPage() {
   return (
     <AuthGuard requiredRole="admin">
@@ -85,13 +243,14 @@ function UsersPageContent() {
   const [userToResetPassword, setUserToResetPassword] = useState<StoredUser | null>(null)
   const [newPassword, setNewPassword] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     username: "",
     password: "",
     name: "",
     email: "",
-    role: "employee" as UserRole,
+    role: "employee",
     department: "",
     isActive: true,
   })
@@ -129,6 +288,7 @@ function UsersPageContent() {
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsSubmitting(true)
     
     try {
       if (editingUser) {
@@ -140,6 +300,7 @@ function UsersPageContent() {
       } else {
         if (!formData.password) {
           toast.error("La contrasena es requerida")
+          setIsSubmitting(false)
           return
         }
         await createUser(formData)
@@ -149,6 +310,8 @@ function UsersPageContent() {
       resetForm()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al guardar usuario")
+    } finally {
+      setIsSubmitting(false)
     }
   }, [editingUser, formData, resetForm, updateUser, createUser])
 
@@ -215,123 +378,6 @@ function UsersPageContent() {
     }
   }
 
-  const UserForm = ({ isEdit }: { isEdit: boolean }) => (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor={isEdit ? "edit-username" : "username"}>Usuario</Label>
-          <Input
-            id={isEdit ? "edit-username" : "username"}
-            value={formData.username}
-            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-            required
-            disabled={isEdit && editingUser?.username === "admin"}
-            placeholder="nombre.usuario"
-          />
-        </div>
-        {!isEdit && (
-          <div className="space-y-2">
-            <Label htmlFor="password">Contrasena</Label>
-            <Input
-              id="password"
-              type="password"
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              required={!isEdit}
-              placeholder="********"
-            />
-          </div>
-        )}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor={isEdit ? "edit-name" : "name"}>Nombre Completo</Label>
-        <Input
-          id={isEdit ? "edit-name" : "name"}
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          required
-          placeholder="Juan Perez"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor={isEdit ? "edit-email" : "email"}>Email</Label>
-        <Input
-          id={isEdit ? "edit-email" : "email"}
-          type="email"
-          value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          required
-          placeholder="usuario@empresa.com"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor={isEdit ? "edit-department" : "department"}>Departamento</Label>
-        <Input
-          id={isEdit ? "edit-department" : "department"}
-          value={formData.department}
-          onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-          placeholder="Infraestructura y TI"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label>Rol</Label>
-        <Select
-          value={formData.role}
-          onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
-          disabled={isEdit && editingUser?.username === "admin"}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="admin">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-blue-500" />
-                Administrador
-              </div>
-            </SelectItem>
-            <SelectItem value="employee">
-              <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-emerald-500" />
-                Empleado
-              </div>
-            </SelectItem>
-            <SelectItem value="requester">
-              <div className="flex items-center gap-2">
-                <Send className="h-4 w-4 text-amber-500" />
-                Solicitante
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      {isEdit && (
-        <div className="flex items-center justify-between p-3 rounded-lg border">
-          <div className="space-y-0.5">
-            <Label htmlFor="isActive">Usuario Activo</Label>
-            <p className="text-xs text-muted-foreground">
-              Los usuarios inactivos no pueden iniciar sesion
-            </p>
-          </div>
-          <Switch
-            id="isActive"
-            checked={formData.isActive}
-            onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
-            disabled={editingUser?.username === "admin"}
-          />
-        </div>
-      )}
-      <DialogFooter>
-        <Button 
-          type="submit" 
-          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-        >
-          {isEdit ? "Guardar Cambios" : "Crear Usuario"}
-        </Button>
-      </DialogFooter>
-    </form>
-  )
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -377,7 +423,14 @@ function UsersPageContent() {
                 <DialogTitle>Crear Nuevo Usuario</DialogTitle>
                 <DialogDescription>Completa la informacion del nuevo usuario</DialogDescription>
               </DialogHeader>
-              <UserForm isEdit={false} />
+              <UserForm 
+                formData={formData}
+                setFormData={setFormData}
+                onSubmit={handleSubmit}
+                isEdit={false}
+                isAdminUser={false}
+                isSubmitting={isSubmitting}
+              />
             </DialogContent>
           </Dialog>
         </div>
@@ -589,7 +642,14 @@ function UsersPageContent() {
               <DialogTitle>Editar Usuario</DialogTitle>
               <DialogDescription>Actualiza la informacion del usuario</DialogDescription>
             </DialogHeader>
-            <UserForm isEdit={true} />
+            <UserForm 
+              formData={formData}
+              setFormData={setFormData}
+              onSubmit={handleSubmit}
+              isEdit={true}
+              isAdminUser={editingUser?.username === "admin"}
+              isSubmitting={isSubmitting}
+            />
           </DialogContent>
         </Dialog>
 
@@ -610,6 +670,7 @@ function UsersPageContent() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="********"
+                autoComplete="new-password"
               />
             </div>
             <AlertDialogFooter>
