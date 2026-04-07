@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const res = await fetch('/api/auth/session')
+        const res = await fetch('/api/auth/session', { credentials: 'include' })
         const data = await res.json()
         if (data.user) {
           setUser(data.user)
@@ -56,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       })
 
@@ -75,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' })
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
@@ -86,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/session')
+      const res = await fetch('/api/auth/session', { credentials: 'include' })
       const data = await res.json()
       if (data.user) {
         setUser(data.user)

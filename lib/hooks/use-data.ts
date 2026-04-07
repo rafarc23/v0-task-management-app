@@ -3,6 +3,13 @@ import type { Task, Employee, Project, Notification } from '@/lib/types'
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { credentials: 'include' })
+  if (res.status === 401) {
+    // Session expired or invalid - redirect to login
+    if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+      window.location.href = '/login'
+    }
+    throw new Error('No autorizado')
+  }
   if (!res.ok) throw new Error('Error fetching data')
   return res.json()
 }

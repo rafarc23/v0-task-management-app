@@ -60,11 +60,12 @@ export async function POST(request: NextRequest) {
       [generateUUID(), user.id, sessionToken, expiresAt.toISOString()]
     )
 
-    // Set cookie
+    // Set cookie - secure: false for HTTP access (local network/IP)
+    // In production with HTTPS, set COOKIE_SECURE=true in environment
     const cookieStore = await cookies()
     cookieStore.set('session_token', sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.COOKIE_SECURE === 'true',
       sameSite: 'lax',
       expires: expiresAt,
       path: '/',
