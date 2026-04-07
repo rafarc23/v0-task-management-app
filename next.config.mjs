@@ -9,8 +9,6 @@ const nextConfig = {
   // Production optimizations
   poweredByHeader: false,
   compress: true,
-  // Optimize output for standalone deployment
-  output: 'standalone',
 }
 
 export default nextConfig
