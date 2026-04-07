@@ -2,7 +2,7 @@ import useSWR from 'swr'
 import type { Task, Employee, Project, Notification } from '@/lib/types'
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url)
+  const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error('Error fetching data')
   return res.json()
 }
@@ -107,6 +107,7 @@ export function useUsers() {
     const res = await fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(userData),
     })
     if (!res.ok) {
@@ -121,6 +122,7 @@ export function useUsers() {
     const res = await fetch(`/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(userData),
     })
     if (!res.ok) {
@@ -132,7 +134,7 @@ export function useUsers() {
   }
 
   const deleteUser = async (id: string) => {
-    const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}))
       throw new Error(errorData.error || 'Error deleting user')
@@ -145,6 +147,7 @@ export function useUsers() {
     const res = await fetch(`/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ password: newPassword }),
     })
     if (!res.ok) {
@@ -174,6 +177,7 @@ export function useUpdateTask() {
       const res = await fetch(`/api/tasks/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error updating task')
@@ -188,6 +192,7 @@ export function useCreateEmployee() {
       const res = await fetch('/api/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error creating employee')
@@ -202,6 +207,7 @@ export function useUpdateEmployee() {
       const res = await fetch(`/api/employees/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error updating employee')
@@ -213,7 +219,7 @@ export function useUpdateEmployee() {
 export function useDeleteEmployee() {
   return {
     deleteEmployee: async (id: string) => {
-      const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/employees/${id}`, { method: 'DELETE', credentials: 'include' })
       if (!res.ok) throw new Error('Error deleting employee')
       return res.json()
     }
@@ -226,6 +232,7 @@ export function useCreateProject() {
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error creating project')
@@ -237,7 +244,7 @@ export function useCreateProject() {
 export function useDeleteProject() {
   return {
     deleteProject: async (id: string) => {
-      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE', credentials: 'include' })
       if (!res.ok) throw new Error('Error deleting project')
       return res.json()
     }
@@ -250,6 +257,7 @@ export function useCreateUser() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error creating user')
@@ -264,6 +272,7 @@ export function useUpdateUser() {
       const res = await fetch(`/api/users/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Error updating user')
@@ -275,7 +284,7 @@ export function useUpdateUser() {
 export function useDeleteUser() {
   return {
     deleteUser: async (id: string) => {
-      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'include' })
       if (!res.ok) throw new Error('Error deleting user')
       return res.json()
     }
@@ -289,6 +298,7 @@ export const api = {
     const res = await fetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error creating task')
@@ -299,6 +309,7 @@ export const api = {
     const res = await fetch(`/api/tasks/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error updating task')
@@ -306,7 +317,7 @@ export const api = {
   },
 
   deleteTask: async (id: string) => {
-    const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Error deleting task')
     return res.json()
   },
@@ -315,6 +326,7 @@ export const api = {
     const res = await fetch(`/api/tasks/${taskId}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ text }),
     })
     if (!res.ok) throw new Error('Error adding comment')
@@ -326,6 +338,7 @@ export const api = {
     const res = await fetch('/api/employees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error creating employee')
@@ -336,6 +349,7 @@ export const api = {
     const res = await fetch(`/api/employees/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error updating employee')
@@ -343,7 +357,7 @@ export const api = {
   },
 
   deleteEmployee: async (id: string) => {
-    const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/employees/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Error deleting employee')
     return res.json()
   },
@@ -353,6 +367,7 @@ export const api = {
     const res = await fetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error creating project')
@@ -363,6 +378,7 @@ export const api = {
     const res = await fetch(`/api/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error updating project')
@@ -370,7 +386,7 @@ export const api = {
   },
 
   deleteProject: async (id: string) => {
-    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Error deleting project')
     return res.json()
   },
@@ -380,6 +396,7 @@ export const api = {
     const res = await fetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error creating user')
@@ -390,6 +407,7 @@ export const api = {
     const res = await fetch(`/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(data),
     })
     if (!res.ok) throw new Error('Error updating user')
@@ -397,7 +415,7 @@ export const api = {
   },
 
   deleteUser: async (id: string) => {
-    const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/users/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Error deleting user')
     return res.json()
   },
@@ -407,6 +425,7 @@ export const api = {
     const res = await fetch('/api/notifications', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ notificationId, markAllRead }),
     })
     if (!res.ok) throw new Error('Error updating notification')
