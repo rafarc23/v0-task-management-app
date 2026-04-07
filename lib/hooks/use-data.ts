@@ -1,10 +1,19 @@
 import useSWR from 'swr'
 import type { Task, Employee, Project, Notification } from '@/lib/types'
 
-const fetcher = (url: string) => fetch(url).then(res => {
+const fetcher = async (url: string) => {
+  const res = await fetch(url)
   if (!res.ok) throw new Error('Error fetching data')
   return res.json()
-})
+}
+
+// Global SWR config for better performance
+const swrConfig = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: false,
+  dedupingInterval: 60000, // 1 minute deduping
+  errorRetryCount: 2,
+}
 
 // Tasks hook
 export function useTasks(options?: { archived?: boolean; employee?: string; status?: string; includeArchived?: boolean }) {
@@ -18,8 +27,8 @@ export function useTasks(options?: { archived?: boolean; employee?: string; stat
   const url = `/api/tasks${queryString ? `?${queryString}` : ''}`
   
   const { data, error, isLoading, mutate } = useSWR<Task[]>(url, fetcher, {
-    refreshInterval: 30000, // Refresh every 30 seconds
-    revalidateOnFocus: true,
+    ...swrConfig,
+    refreshInterval: 60000, // Refresh every 60 seconds (was 30)
   })
 
   return {
@@ -34,7 +43,8 @@ export function useTasks(options?: { archived?: boolean; employee?: string; stat
 export function useTask(id: string | null) {
   const { data, error, isLoading, mutate } = useSWR<Task>(
     id ? `/api/tasks/${id}` : null,
-    fetcher
+    fetcher,
+    swrConfig
   )
 
   return {
@@ -47,10 +57,7 @@ export function useTask(id: string | null) {
 
 // Employees hook
 export function useEmployees() {
-  const { data, error, isLoading, mutate } = useSWR<Employee[]>('/api/employees', fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000, // Cache for 1 minute
-  })
+  const { data, error, isLoading, mutate } = useSWR<Employee[]>('/api/employees', fetcher, swrConfig)
 
   return {
     employees: data || [],
@@ -62,10 +69,7 @@ export function useEmployees() {
 
 // Projects hook
 export function useProjects() {
-  const { data, error, isLoading, mutate } = useSWR<Project[]>('/api/projects', fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000,
-  })
+  const { data, error, isLoading, mutate } = useSWR<Project[]>('/api/projects', fetcher, swrConfig)
 
   return {
     projects: data || [],
@@ -81,8 +85,8 @@ export function useNotifications() {
     '/api/notifications',
     fetcher,
     {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
+      ...swrConfig,
+      refreshInterval: 60000, // Check notifications every minute
     }
   )
 
@@ -97,10 +101,7 @@ export function useNotifications() {
 
 // Users hook (admin only) - includes mutation functions
 export function useUsers() {
-  const { data, error, isLoading, mutate } = useSWR('/api/users', fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 30000,
-  })
+  const { data, error, isLoading, mutate } = useSWR('/api/users', fetcher, swrConfig)
 
   const createUser = async (userData: Record<string, unknown>) => {
     const res = await fetch('/api/users', {

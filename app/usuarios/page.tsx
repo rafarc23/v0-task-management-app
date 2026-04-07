@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback, useMemo, memo } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { AuthGuard } from "@/components/auth-guard"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
@@ -76,26 +76,22 @@ interface FormData {
   isActive: boolean
 }
 
-// Extracted UserForm as a separate memoized component to prevent re-renders
-const UserForm = memo(function UserForm({
+// Simple form component - no memo to avoid stale closure issues
+function UserForm({
   formData,
-  setFormData,
+  onFieldChange,
   onSubmit,
   isEdit,
   isAdminUser,
   isSubmitting,
 }: {
   formData: FormData
-  setFormData: (data: FormData) => void
+  onFieldChange: (field: keyof FormData, value: string | boolean) => void
   onSubmit: (e: React.FormEvent) => void
   isEdit: boolean
   isAdminUser: boolean
   isSubmitting: boolean
 }) {
-  const handleInputChange = useCallback((field: keyof FormData, value: string | boolean) => {
-    setFormData({ ...formData, [field]: value })
-  }, [formData, setFormData])
-
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -104,7 +100,7 @@ const UserForm = memo(function UserForm({
           <Input
             id={isEdit ? "edit-username" : "username"}
             value={formData.username}
-            onChange={(e) => handleInputChange("username", e.target.value)}
+            onChange={(e) => onFieldChange("username", e.target.value)}
             required
             disabled={isEdit && isAdminUser}
             placeholder="nombre.usuario"
@@ -118,7 +114,7 @@ const UserForm = memo(function UserForm({
               id="password"
               type="password"
               value={formData.password}
-              onChange={(e) => handleInputChange("password", e.target.value)}
+              onChange={(e) => onFieldChange("password", e.target.value)}
               required={!isEdit}
               placeholder="********"
               autoComplete="new-password"
@@ -131,7 +127,7 @@ const UserForm = memo(function UserForm({
         <Input
           id={isEdit ? "edit-name" : "name"}
           value={formData.name}
-          onChange={(e) => handleInputChange("name", e.target.value)}
+          onChange={(e) => onFieldChange("name", e.target.value)}
           required
           placeholder="Juan Perez"
           autoComplete="off"
@@ -143,7 +139,7 @@ const UserForm = memo(function UserForm({
           id={isEdit ? "edit-email" : "email"}
           type="email"
           value={formData.email}
-          onChange={(e) => handleInputChange("email", e.target.value)}
+          onChange={(e) => onFieldChange("email", e.target.value)}
           required
           placeholder="usuario@empresa.com"
           autoComplete="off"
@@ -154,7 +150,7 @@ const UserForm = memo(function UserForm({
         <Input
           id={isEdit ? "edit-department" : "department"}
           value={formData.department}
-          onChange={(e) => handleInputChange("department", e.target.value)}
+          onChange={(e) => onFieldChange("department", e.target.value)}
           placeholder="Infraestructura y TI"
           autoComplete="off"
         />
@@ -163,7 +159,7 @@ const UserForm = memo(function UserForm({
         <Label>Rol</Label>
         <Select
           value={formData.role}
-          onValueChange={(value: UserRole) => handleInputChange("role", value)}
+          onValueChange={(value: UserRole) => onFieldChange("role", value)}
           disabled={isEdit && isAdminUser}
         >
           <SelectTrigger>
@@ -202,7 +198,7 @@ const UserForm = memo(function UserForm({
           <Switch
             id="isActive"
             checked={formData.isActive}
-            onCheckedChange={(checked) => handleInputChange("isActive", checked)}
+            onCheckedChange={(checked) => onFieldChange("isActive", checked)}
             disabled={isAdminUser}
           />
         </div>
@@ -222,7 +218,7 @@ const UserForm = memo(function UserForm({
       </DialogFooter>
     </form>
   )
-})
+}
 
 export default function UsersPage() {
   return (
@@ -284,6 +280,11 @@ function UsersPageContent() {
       department: "",
       isActive: true,
     })
+  }, [])
+
+  // Use functional update to avoid stale closure issues
+  const handleFieldChange = useCallback((field: keyof FormData, value: string | boolean) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
   }, [])
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -425,7 +426,7 @@ function UsersPageContent() {
               </DialogHeader>
               <UserForm 
                 formData={formData}
-                setFormData={setFormData}
+                onFieldChange={handleFieldChange}
                 onSubmit={handleSubmit}
                 isEdit={false}
                 isAdminUser={false}
@@ -644,7 +645,7 @@ function UsersPageContent() {
             </DialogHeader>
             <UserForm 
               formData={formData}
-              setFormData={setFormData}
+              onFieldChange={handleFieldChange}
               onSubmit={handleSubmit}
               isEdit={true}
               isAdminUser={editingUser?.username === "admin"}
