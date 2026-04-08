@@ -9,15 +9,21 @@ const isLocalhost = process.env.DATABASE_URL?.includes('localhost') ||
                     process.env.DATABASE_URL?.includes('127.0.0.1') ||
                     process.env.DATABASE_URL?.includes('192.168.')
 
-// Create a connection pool
+// Create a connection pool with optimized settings for performance
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  // Reduced pool size for better resource management
+  max: 10,
+  min: 2,
+  // Keep connections alive longer
+  idleTimeoutMillis: 60000,
+  // Faster connection timeout
+  connectionTimeoutMillis: 5000,
   // For cloud databases, use SSL with verify-full to avoid the security warning
   // For local databases, disable SSL
   ssl: isLocalhost ? false : { rejectUnauthorized: true },
+  // Statement timeout to prevent long-running queries
+  statement_timeout: 30000,
 })
 
 // Helper function to run queries

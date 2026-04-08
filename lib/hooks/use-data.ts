@@ -14,12 +14,15 @@ const fetcher = async (url: string) => {
   return res.json()
 }
 
-// Global SWR config for better performance
+// Global SWR config for better performance - optimized for slow connections
 const swrConfig = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false,
-  dedupingInterval: 60000, // 1 minute deduping
-  errorRetryCount: 2,
+  dedupingInterval: 120000, // 2 minute deduping - prevents duplicate requests
+  errorRetryCount: 1, // Only retry once to avoid blocking
+  errorRetryInterval: 5000, // Wait 5 seconds before retry
+  loadingTimeout: 10000, // Show loading state after 10s
+  keepPreviousData: true, // Keep showing old data while fetching new
 }
 
 // Tasks hook
@@ -35,7 +38,7 @@ export function useTasks(options?: { archived?: boolean; employee?: string; stat
   
   const { data, error, isLoading, mutate } = useSWR<Task[]>(url, fetcher, {
     ...swrConfig,
-    refreshInterval: 60000, // Refresh every 60 seconds (was 30)
+    refreshInterval: 120000, // Refresh every 2 minutes
   })
 
   return {
