@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useCallback, memo } from "react"
+import { useMemo, useCallback, memo, useState, lazy, Suspense } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { AuthGuard } from "@/components/auth-guard"
@@ -18,10 +18,18 @@ import {
 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
-import { CalendarView } from "@/components/calendar-view"
-import { KanbanView } from "@/components/kanban-view"
 import { Input } from "@/components/ui/input"
-import { useState } from "react"
+
+// Lazy load heavy components - only loaded when tab is selected
+const CalendarView = lazy(() => import("@/components/calendar-view").then(m => ({ default: m.CalendarView })))
+const KanbanView = lazy(() => import("@/components/kanban-view").then(m => ({ default: m.KanbanView })))
+
+// Loading fallback for lazy components
+const TabLoading = () => (
+  <div className="flex items-center justify-center py-20">
+    <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+  </div>
+)
 
 export default function DashboardPage() {
   return (
@@ -307,11 +315,15 @@ function DashboardContent() {
             </TabsContent>
 
             <TabsContent value="calendar" className="mt-6">
-              <CalendarView tasks={filteredTasks} onTaskClick={(taskId) => router.push(`/tarea/${taskId}`)} selectedEmployee={filterEmployee !== "all" ? filterEmployee : undefined} />
+              <Suspense fallback={<TabLoading />}>
+                <CalendarView tasks={filteredTasks} onTaskClick={(taskId) => router.push(`/tarea/${taskId}`)} selectedEmployee={filterEmployee !== "all" ? filterEmployee : undefined} />
+              </Suspense>
             </TabsContent>
 
             <TabsContent value="kanban" className="mt-6">
-              <KanbanView tasks={filteredTasks} onTaskClick={(taskId) => router.push(`/tarea/${taskId}`)} />
+              <Suspense fallback={<TabLoading />}>
+                <KanbanView tasks={filteredTasks} onTaskClick={(taskId) => router.push(`/tarea/${taskId}`)} />
+              </Suspense>
             </TabsContent>
           </Tabs>
         </div>

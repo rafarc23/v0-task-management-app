@@ -89,16 +89,57 @@ export function useProjects() {
   }
 }
 
-// Notifications hook
+// Notifications hook with optimistic updates
 export function useNotifications() {
   const { data, error, isLoading, mutate } = useSWR<{ notifications: Notification[]; unreadCount: number }>(
     '/api/notifications',
     fetcher,
     {
       ...swrConfig,
-      refreshInterval: 60000, // Check notifications every minute
+      refreshInterval: 120000, // Check notifications every 2 minutes (was 1 minute)
+      revalidateIfStale: false, // Don't revalidate on stale - reduces requests
     }
   )
+
+  const markAsRead = async (notificationId: string) => {
+    // Optimistic update
+    mutate(
+      data ? {
+        ...data,
+        notifications: data.notifications.map(n => 
+          n.id === notificationId ? { ...n, read: true } : n
+        ),
+        unreadCount: Math.max(0, data.unreadCount - 1)
+      } : undefined,
+      false
+    )
+    
+    await fetch('/api/notifications', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ notificationId }),
+    })
+  }
+
+  const markAllAsRead = async () => {
+    // Optimistic update
+    mutate(
+      data ? {
+        ...data,
+        notifications: data.notifications.map(n => ({ ...n, read: true })),
+        unreadCount: 0
+      } : undefined,
+      false
+    )
+    
+    await fetch('/api/notifications', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ markAllRead: true }),
+    })
+  }
 
   return {
     notifications: data?.notifications || [],
@@ -106,6 +147,8 @@ export function useNotifications() {
     isLoading,
     isError: error,
     mutate,
+    markAsRead,
+    markAllAsRead,
   }
 }
 

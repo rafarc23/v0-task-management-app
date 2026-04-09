@@ -1,5 +1,7 @@
 "use client"
 
+import { memo } from "react"
+import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -19,7 +21,7 @@ import type { Notification } from "@/lib/types"
 import { formatDistanceToNow } from "date-fns"
 import { es } from "date-fns/locale"
 
-export function DashboardHeader() {
+export const DashboardHeader = memo(function DashboardHeader() {
   const { user, logout, isAdmin, isRequester, isEmployee } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -49,21 +51,24 @@ export function DashboardHeader() {
   const getInitials = (name: string) =>
     name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
-  const NavButton = ({ href, icon: Icon, label }: { href: string; icon: React.ElementType; label: string }) => (
-    <Button
-      variant="secondary"
-      size="sm"
-      className={`text-white border-white/20 transition-all ${
-        pathname === href
-          ? "bg-white/30 font-semibold"
-          : "bg-white/10 hover:bg-white/20"
-      }`}
-      onClick={() => router.push(href)}
-    >
-      <Icon className="mr-1.5 h-4 w-4" />
-      {label}
-    </Button>
-  )
+  const NavButton = memo(function NavButton({ href, icon: Icon, label, isActive }: { href: string; icon: React.ElementType; label: string; isActive: boolean }) {
+    return (
+      <Link href={href} prefetch={true}>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={`text-white border-white/20 transition-all ${
+            isActive
+              ? "bg-white/30 font-semibold"
+              : "bg-white/10 hover:bg-white/20"
+          }`}
+        >
+          <Icon className="mr-1.5 h-4 w-4" />
+          {label}
+        </Button>
+      </Link>
+    )
+  })
 
   const roleLabel = isAdmin ? "Administrador" : isEmployee ? "Operario" : "Solicitante"
   const roleBg = isAdmin ? "bg-blue-400/30" : isEmployee ? "bg-emerald-400/30" : "bg-amber-400/30"
@@ -72,12 +77,11 @@ export function DashboardHeader() {
     <header className="border-b bg-gradient-to-r from-slate-800 via-slate-900 to-slate-800 text-white shadow-lg">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div
-            className="h-11 w-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-lg"
-            onClick={() => router.push("/dashboard")}
-          >
-            <Wrench className="h-5 w-5" />
-          </div>
+          <Link href="/dashboard" prefetch={true}>
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-lg">
+              <Wrench className="h-5 w-5" />
+            </div>
+          </Link>
           <div className="hidden md:block">
             <h1 className="text-lg font-bold">Gestion de Tareas</h1>
             <div className="flex items-center gap-2">
@@ -91,30 +95,30 @@ export function DashboardHeader() {
           {/* Solicitante nav */}
           {isRequester && (
             <>
-              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva Solicitud" />
-              <NavButton href="/mis-solicitudes" icon={Send} label="Mis Solicitudes" />
+              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva Solicitud" isActive={pathname === "/nueva-solicitud"} />
+              <NavButton href="/mis-solicitudes" icon={Send} label="Mis Solicitudes" isActive={pathname === "/mis-solicitudes"} />
             </>
           )}
 
           {/* Empleado nav */}
           {isEmployee && (
             <>
-              <NavButton href="/mis-tareas" icon={ClipboardList} label="Mis Tareas" />
-              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva Solicitud" />
+              <NavButton href="/mis-tareas" icon={ClipboardList} label="Mis Tareas" isActive={pathname === "/mis-tareas"} />
+              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva Solicitud" isActive={pathname === "/nueva-solicitud"} />
             </>
           )}
 
           {/* Admin nav */}
           {isAdmin && (
             <>
-              <NavButton href="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva" />
-              <NavButton href="/mis-tareas" icon={ClipboardList} label="Mis Tareas" />
-              <NavButton href="/equipo" icon={Users} label="Equipo" />
-              <NavButton href="/usuarios" icon={UserCog} label="Usuarios" />
-              <NavButton href="/proyectos" icon={FolderKanban} label="Proyectos" />
-              <NavButton href="/informes" icon={BarChart3} label="Informes" />
-              <NavButton href="/archivo" icon={Archive} label="Archivo" />
+              <NavButton href="/dashboard" icon={LayoutDashboard} label="Dashboard" isActive={pathname === "/dashboard"} />
+              <NavButton href="/nueva-solicitud" icon={Plus} label="Nueva" isActive={pathname === "/nueva-solicitud"} />
+              <NavButton href="/mis-tareas" icon={ClipboardList} label="Mis Tareas" isActive={pathname === "/mis-tareas"} />
+              <NavButton href="/equipo" icon={Users} label="Equipo" isActive={pathname === "/equipo"} />
+              <NavButton href="/usuarios" icon={UserCog} label="Usuarios" isActive={pathname === "/usuarios"} />
+              <NavButton href="/proyectos" icon={FolderKanban} label="Proyectos" isActive={pathname === "/proyectos"} />
+              <NavButton href="/informes" icon={BarChart3} label="Informes" isActive={pathname === "/informes"} />
+              <NavButton href="/archivo" icon={Archive} label="Archivo" isActive={pathname === "/archivo"} />
             </>
           )}
 
@@ -213,4 +217,4 @@ export function DashboardHeader() {
       </div>
     </header>
   )
-}
+})
