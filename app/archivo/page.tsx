@@ -20,7 +20,7 @@ import { es } from "date-fns/locale"
 
 export default function ArchivoPage() {
   return (
-    <AuthGuard>
+    <AuthGuard requireAdmin>
       <ArchivoContent />
     </AuthGuard>
   )

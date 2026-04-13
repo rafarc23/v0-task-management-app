@@ -29,7 +29,7 @@ import { useRouter } from "next/navigation"
 
 export default function ProjectsPage() {
   return (
-    <AuthGuard requiredRole="admin">
+    <AuthGuard requireAdmin>
       <ProjectsContent />
     </AuthGuard>
   )

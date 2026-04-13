@@ -222,7 +222,7 @@ function UserForm({
 
 export default function UsersPage() {
   return (
-    <AuthGuard requiredRole="admin">
+    <AuthGuard requireAdmin>
       <UsersPageContent />
     </AuthGuard>
   )
