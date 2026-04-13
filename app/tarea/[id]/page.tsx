@@ -567,11 +567,24 @@ function TaskDetailContent() {
 
                   <div className="space-y-2">
                     <Label>Asignar a</Label>
-                    <Select value={task.assignedTo?.id || ""} onValueChange={handleAssignTo}>
+                    <Select 
+                      value={task.assignedTo?.id || "unassigned"} 
+                      onValueChange={(value) => {
+                        if (value !== "unassigned") {
+                          handleAssignTo(value)
+                        }
+                      }}
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Sin asignar" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="unassigned">
+                          <div className="flex items-center gap-2 text-gray-500">
+                            <div className="w-3 h-3 rounded-full bg-gray-300" />
+                            Sin asignar
+                          </div>
+                        </SelectItem>
                         {employees.map((emp) => (
                           <SelectItem key={emp.id} value={emp.id}>
                             <div className="flex items-center gap-2">
