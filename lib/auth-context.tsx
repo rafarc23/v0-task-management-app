@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { setDemoMode as setDemoModeStorage } from "@/lib/demo-data"
 
 export type UserRole = "admin" | "employee" | "requester"
 
@@ -17,6 +18,7 @@ export interface User {
 interface AuthContextType {
   user: User | null
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  loginDemo: () => void
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   isLoading: boolean
@@ -24,13 +26,24 @@ interface AuthContextType {
   isAdmin: boolean
   isRequester: boolean
   isEmployee: boolean
+  isDemoMode: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// Demo user for testing without database
+const DEMO_USER: User = {
+  id: "demo-admin-001",
+  username: "demo_admin",
+  email: "demo@empresa.com",
+  name: "Usuario Demo",
+  role: "admin",
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isDemoMode, setIsDemoMode] = useState(false)
   const router = useRouter()
 
   // Check session on mount
@@ -74,16 +87,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const loginDemo = useCallback(() => {
+    setUser(DEMO_USER)
+    setIsDemoMode(true)
+    setIsLoading(false)
+    router.push("/dashboard")
+  }, [router])
+
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      if (!isDemoMode) {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      }
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
       setUser(null)
+      setIsDemoMode(false)
       router.push("/login")
     }
-  }, [router])
+  }, [router, isDemoMode])
 
   const refreshUser = useCallback(async () => {
     try {
@@ -102,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         login,
+        loginDemo,
         logout,
         refreshUser,
         isLoading,
@@ -109,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: user?.role === "admin",
         isRequester: user?.role === "requester",
         isEmployee: user?.role === "employee",
+        isDemoMode,
       }}
     >
       {children}
